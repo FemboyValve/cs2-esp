@@ -1,8 +1,4 @@
 #pragma once
-#ifndef _VECTOR_ESP_
-#define _VECTOR_ESP_
-#include <numbers>
-#include <cmath>
 
 struct Vector3
 {
@@ -83,4 +79,3 @@ struct Vector3
 	// struct data
 	float x, y, z;
 };
-#endif

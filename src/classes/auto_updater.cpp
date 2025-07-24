@@ -1,6 +1,5 @@
 #include "auto_updater.hpp"
 
-
 namespace updater {
 #ifndef _UC
 	bool check_and_update(bool automatic_update) {

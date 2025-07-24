@@ -1,3 +1,5 @@
+#pragma once
+
 #include "reader.hpp"
 #include "../classes/render.hpp"
 #include "../classes/config.hpp"

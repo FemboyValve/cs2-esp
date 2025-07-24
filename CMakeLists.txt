@@ -23,6 +23,9 @@ add_executable(${PROJECT_NAME}
     ${HEADER_FILES_CS2}
 )
 
+#add thirdparty libs
+add_subdirectory(3rdparty)
+
 # Enable precompiled header
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/pch.h)
 
@@ -37,6 +40,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     User32
     gdiplus
     wininet
+    nlohmann_json
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "utils.h"
-#include "json.hpp"
 #include "auto_updater.hpp"
 
 using json = nlohmann::json;
