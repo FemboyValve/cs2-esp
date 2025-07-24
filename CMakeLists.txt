@@ -34,6 +34,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
+    NOMINMAX
     $<$<CONFIG:Debug>:_DEBUG _UC _CONSOLE>
     $<$<CONFIG:Release>:NDEBUG _UC _CONSOLE>
 )
@@ -44,6 +45,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     gdiplus
     wininet
     nlohmann_json
+    fmt
+    quill
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

@@ -22,3 +22,5 @@
 // Thirdparty Libs
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
+
+#include "utils/log.h"

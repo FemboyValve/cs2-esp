@@ -10,12 +10,12 @@ struct Vector3
 		x(x), y(y), z(z) { }
 
 	// operator overloads
-	constexpr const Vector3& operator-(const Vector3& other) const noexcept
+	constexpr Vector3 operator-(const Vector3& other) const noexcept
 	{
 		return Vector3{ x - other.x, y - other.y, z - other.z };
 	}
 
-	constexpr const Vector3& operator+(const Vector3& other) const noexcept
+	constexpr Vector3 operator+(const Vector3& other) const noexcept
 	{
 		return Vector3{ x + other.x, y + other.y, z + other.z };
 	}
