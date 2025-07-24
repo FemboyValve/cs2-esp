@@ -1,5 +1,3 @@
-#include <thread>
-#include <cmath>
 #include "reader.hpp"
 #include "../classes/render.hpp"
 #include "../classes/config.hpp"

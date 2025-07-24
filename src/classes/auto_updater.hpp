@@ -1,13 +1,5 @@
 #pragma once
-#include <Windows.h>
-#include <WinINet.h>
-#include <iostream>
-#include <fstream>
-#include <ctime>
-#include <string>
-#include <vector>
-#include <sstream>
-#include <filesystem>
+
 #include "json.hpp"
 
 using json = nlohmann::json;

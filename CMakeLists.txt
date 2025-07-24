@@ -23,6 +23,9 @@ add_executable(${PROJECT_NAME}
     ${HEADER_FILES_CS2}
 )
 
+# Enable precompiled header
+target_precompile_headers(${PROJECT_NAME} PRIVATE src/pch.h)
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:_DEBUG _CONSOLE>
     $<$<CONFIG:Release>:NDEBUG _CONSOLE>

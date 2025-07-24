@@ -1,13 +1,4 @@
-#ifndef _PPROCESS_HPP_
-#define _PPROCESS_HPP_
-
-#include <vector>
-#include <math.h>
-#include <Windows.h>
-#include <TlHelp32.h>
-#include <string>
-#include <iostream>
-#include <Psapi.h> 
+#pragma once
 
 typedef NTSTATUS(WINAPI* pNtReadVirtualMemory)(HANDLE ProcessHandle, PVOID BaseAddress, PVOID Buffer, ULONG NumberOfBytesToRead, PULONG NumberOfBytesRead);
 typedef NTSTATUS(WINAPI* pNtWriteVirtualMemory)(HANDLE ProcessHandle, PVOID BaseAddress, PVOID Buffer, ULONG NumberOfBytesToWrite, PULONG NumberOfBytesWritten);
@@ -121,4 +112,3 @@ private:
 	uint32_t FindProcessIdByWindowName(const char* window_name);
 	HWND GetWindowHandleFromProcessId(DWORD ProcessId);
 };
-#endif
