@@ -2,7 +2,6 @@
 
 namespace fs = std::filesystem;
 
-
 namespace updater {
 	const std::string file_path = "offsets.json";
 

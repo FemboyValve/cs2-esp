@@ -1,6 +1,7 @@
 #pragma once
-#include "../memory/memory.hpp"
-#include "../classes/vector.hpp"
+
+#include "memory/memory.hpp"
+#include "classes/vector.hpp"
 
 struct view_matrix_t {
 	float* operator[ ](int index) {

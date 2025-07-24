@@ -20,11 +20,7 @@
     If you need want some more info i recommend you watch my YT video on this bypass.
     Anyways if you want to see more of my stuff feel free to join my discord server discord.gg/********. Here's my YT as well https://www.youtube.com/channel/UCPN6OOLxn1OaBP5jPThIiog.
 */
-
-#include <Windows.h> 
-#include <iostream>
-#include <TlHelp32.h>
-#include <string>
+#pragma once
 
 // macros we use.Some can be found in wintrnl.h
 #define SeDebugPriv 20

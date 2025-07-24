@@ -1,5 +1,5 @@
 #include "memory.hpp"
-#include <tlhelp32.h>
+
 #include "handle_hijack.hpp"
 
 uint32_t pProcess::FindProcessIdByProcessName(const char* ProcessName)

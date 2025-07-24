@@ -29,10 +29,13 @@ add_subdirectory(3rdparty)
 # Enable precompiled header
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/pch.h)
 
+target_include_directories(${PROJECT_NAME} PRIVATE
+    src
+)
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE
-    $<$<CONFIG:Debug>:_DEBUG _CONSOLE>
-    $<$<CONFIG:Release>:NDEBUG _CONSOLE>
-    $<$<CONFIG:Unknowncheats>:NDEBUG _UC _CONSOLE>
+    $<$<CONFIG:Debug>:_DEBUG _UC _CONSOLE>
+    $<$<CONFIG:Release>:NDEBUG _UC _CONSOLE>
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

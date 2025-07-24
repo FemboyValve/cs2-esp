@@ -1,9 +1,9 @@
 #pragma once
 
 #include "reader.hpp"
-#include "../classes/render.hpp"
-#include "../classes/config.hpp"
-#include "../classes/globals.hpp"
+#include "classes/render.hpp"
+#include "classes/config.hpp"
+#include "classes/globals.hpp"
 
 namespace hack {
 	std::vector<std::pair<std::string, std::string>> boneConnections = {

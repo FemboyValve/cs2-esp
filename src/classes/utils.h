@@ -1,6 +1,4 @@
 #pragma once
-#include <windows.h>
-#include <string>
 
 #include "config.hpp"
 #include "vector.hpp"
