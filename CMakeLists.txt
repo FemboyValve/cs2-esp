@@ -67,9 +67,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json
     fmt
     quill
-    glfw
-    imgui
+    #imgui
     OpenGL::GL
+    d2d1.lib
+    dwrite.lib
+    windowscodecs.lib
 )
 
 # Copy offsets.json after build

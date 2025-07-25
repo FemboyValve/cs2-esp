@@ -4,12 +4,6 @@
 #include <chrono>
 #include <iostream>
 
-// ImGui includes
-#include "imgui.h"
-#include "backends/imgui_impl_glfw.h"
-#include "backends/imgui_impl_opengl3.h"
-#include <GLFW/glfw3.h>
-
 class App {
 private:
     HWND m_hWnd;
@@ -17,10 +11,13 @@ private:
     bool m_finish;
     std::thread m_readThread;
 
-    // ImGui/GLFW members
-    GLFWwindow* m_glfwWindow;
-    bool m_showConfigWindow;
-    bool m_imguiInitialized;
+    // Keep local copies but use globals for compatibility
+    HDC m_hdcBuffer;
+    HBITMAP m_hbmBuffer;
+    RECT m_gameBounds;
+
+    // Hardware acceleration toggle
+    bool m_useHardwareAccel;
 
     // Private methods
     bool InitializeOffsets();
@@ -29,12 +26,9 @@ private:
     void CheckForUpdates();
 #endif
     bool CreateOverlayWindow();
-    bool InitializeImGui();
     void StartReadThread();
     void HandleKeyInput();
     void MessageLoop();
-    void RenderImGui();
-    void CleanupImGui();
 
     // Thread function
     void ReadThreadFunction();
@@ -44,6 +38,9 @@ private:
 
     // Store instance pointer for window procedure access
     static App* s_instance;
+
+    // Make WndProc a friend so it can access private members
+    friend LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 public:
     App();
@@ -57,4 +54,8 @@ public:
     // Control methods
     void RequestShutdown() { m_finish = true; }
     bool IsFinishing() const { return m_finish; }
+
+    // Hardware acceleration control
+    bool IsHardwareAccelEnabled() const { return m_useHardwareAccel; }
+    void SetHardwareAcceleration(bool enable) { m_useHardwareAccel = enable; }
 };

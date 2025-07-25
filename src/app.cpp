@@ -12,12 +12,13 @@
 // Static member initialization
 App* App::s_instance = nullptr;
 
-App::App() : m_hWnd(nullptr), m_hInstance(nullptr), m_finish(false), m_glfwWindow(nullptr),
-m_showConfigWindow(true), m_imguiInitialized(false) {
+// Global hardware renderer instance
+render::HardwareRenderer render::g_hwRenderer;
+
+App::App() : m_hWnd(nullptr), m_hInstance(nullptr), m_finish(false),
+m_hdcBuffer(nullptr), m_hbmBuffer(nullptr), m_useHardwareAccel(true) {
     s_instance = this;
-    ZeroMemory(&g::gameBounds, sizeof(RECT));
-    g::hdcBuffer = nullptr;
-	g::hbmBuffer = nullptr;
+    ZeroMemory(&m_gameBounds, sizeof(RECT));
 }
 
 App::~App() {
@@ -27,6 +28,15 @@ App::~App() {
 int App::Initialize(int argc, char* argv[]) {
     LOG_INIT();
     utils.update_console_title();
+
+    // Check command line arguments for hardware acceleration disable
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--no-hw-accel") == 0) {
+            m_useHardwareAccel = false;
+            CLOG_INFO("[render] Hardware acceleration disabled via command line");
+            break;
+        }
+    }
 
     if (!InitializeConfig()) {
         return -1;
@@ -55,157 +65,7 @@ int App::Initialize(int argc, char* argv[]) {
         CLOG_INFO("[cs2] Offsets seem to be up to date! have fun!");
     }
 
-    // Initialize ImGui
-    if (!InitializeImGui()) {
-        CLOG_WARN("[ImGui] Failed to initialize ImGui!");
-        return -1;
-    }
-
     return 0;
-}
-
-bool App::InitializeImGui() {
-    // Initialize GLFW
-    if (!glfwInit()) {
-        CLOG_WARN("[GLFW] Failed to initialize GLFW");
-        return false;
-    }
-
-    // GL 3.0 + GLSL 130
-    const char* glsl_version = "#version 130";
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-
-    // Create window with graphics context
-    m_glfwWindow = glfwCreateWindow(800, 600, "CS2 ESP Config", nullptr, nullptr);
-    if (m_glfwWindow == nullptr) {
-        CLOG_WARN("[GLFW] Failed to create GLFW window");
-        glfwTerminate();
-        return false;
-    }
-
-    glfwMakeContextCurrent(m_glfwWindow);
-    glfwSwapInterval(1); // Enable vsync
-
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-
-    // Setup Platform/Renderer backends
-    ImGui_ImplGlfw_InitForOpenGL(m_glfwWindow, true);
-    ImGui_ImplOpenGL3_Init(glsl_version);
-
-    m_imguiInitialized = true;
-    CLOG_INFO("[ImGui] Successfully initialized ImGui with GLFW and OpenGL3");
-    return true;
-}
-
-void App::RenderImGui() {
-    if (!m_imguiInitialized || !m_glfwWindow) {
-        return;
-    }
-
-    // Poll and handle events (inputs, window resize, etc.)
-    glfwPollEvents();
-
-    // Start the Dear ImGui frame
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-
-    // Main configuration window
-    if (m_showConfigWindow) {
-        ImGui::Begin("CS2 ESP Configuration", &m_showConfigWindow);
-
-        ImGui::Text("ESP Settings");
-        ImGui::Separator();
-
-        // Box ESP toggle
-        bool boxEsp = config::show_box_esp;
-        if (ImGui::Checkbox("Box ESP (F4)", &boxEsp)) {
-            config::show_box_esp = boxEsp;
-            config::save();
-        }
-
-        // Team ESP toggle
-        bool teamEsp = config::team_esp;
-        if (ImGui::Checkbox("Team ESP (F5)", &teamEsp)) {
-            config::team_esp = teamEsp;
-            config::save();
-        }
-
-#ifndef _UC
-        // Automatic updates toggle
-        bool autoUpdate = config::automatic_update;
-        if (ImGui::Checkbox("Automatic Updates (F6)", &autoUpdate)) {
-            config::automatic_update = autoUpdate;
-            config::save();
-        }
-#endif
-
-        // Extra flags toggle
-        bool extraFlags = config::show_extra_flags;
-        if (ImGui::Checkbox("Extra Flags (F7)", &extraFlags)) {
-            config::show_extra_flags = extraFlags;
-            config::save();
-        }
-
-        // Skeleton ESP toggle
-        bool skeletonEsp = config::show_skeleton_esp;
-        if (ImGui::Checkbox("Skeleton ESP (F8)", &skeletonEsp)) {
-            config::show_skeleton_esp = skeletonEsp;
-            config::save();
-        }
-
-        // Head tracker toggle
-        bool headTracker = config::show_head_tracker;
-        if (ImGui::Checkbox("Head Tracker (F9)", &headTracker)) {
-            config::show_head_tracker = headTracker;
-            config::save();
-        }
-
-        // Exit button
-        if (ImGui::Button("Exit ESP (END)")) {
-            m_finish = true;
-        }
-
-        ImGui::End();
-    }
-
-    // Rendering
-    ImGui::Render();
-    int display_w, display_h;
-    glfwGetFramebufferSize(m_glfwWindow, &display_w, &display_h);
-    glViewport(0, 0, display_w, display_h);
-    glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-    glfwSwapBuffers(m_glfwWindow);
-}
-
-void App::CleanupImGui() {
-    if (m_imguiInitialized) {
-        // Cleanup
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
-
-        if (m_glfwWindow) {
-            glfwDestroyWindow(m_glfwWindow);
-            m_glfwWindow = nullptr;
-        }
-        glfwTerminate();
-
-        m_imguiInitialized = false;
-        CLOG_INFO("[ImGui] ImGui cleanup completed");
-    }
 }
 
 int App::Run() {
@@ -227,12 +87,11 @@ int App::Run() {
 
     // Show keybind information
 #ifndef _UC
-    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F6] enable/disable automatic updates\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[end] Unload esp.\n" << std::endl;
+    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F6] enable/disable automatic updates\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[F10] toggle hardware acceleration\n\t[end] Unload esp.\n" << std::endl;
 #else
-    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[end] Unload esp.\n" << std::endl;
+    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[F10] toggle hardware acceleration\n\t[end] Unload esp.\n" << std::endl;
 #endif
     std::cout << "[settings] Make sure you check the config for additional settings!" << std::endl;
-    std::cout << "[ImGui] ImGui configuration window is now available!" << std::endl;
 
     MessageLoop();
 
@@ -244,15 +103,14 @@ void App::Shutdown() {
     if (m_readThread.joinable()) {
         m_readThread.detach();
     }
-    
-    // Cleanup ImGui first
-    CleanupImGui();
-    
     Beep(700, 100);
     Beep(700, 100);
     std::cout << "[overlay] Destroying overlay window." << std::endl;
 
-    // Clean up resources that aren't handled by WM_DESTROY
+    // Clean up hardware renderer
+    render::g_hwRenderer.Cleanup();
+
+    // Clean up GDI resources that aren't handled by WM_DESTROY
     bool cleanupSuccess = true;
 
     if (g::hdcBuffer) {
@@ -334,7 +192,10 @@ bool App::CreateOverlayWindow() {
         return false;
     }
 
-    GetClientRect(g_game.process->hwnd_, &g::gameBounds);
+    GetClientRect(g_game.process->hwnd_, &m_gameBounds);
+
+    // Store in global for compatibility with original code
+    g::gameBounds = m_gameBounds;
 
     m_hInstance = NULL; // Like original
     m_hWnd = CreateWindowExA(
@@ -342,10 +203,10 @@ bool App::CreateOverlayWindow() {
         " ",
         "cs2-external-esp",
         WS_POPUP,
-        g::gameBounds.left,
-        g::gameBounds.top,
-        g::gameBounds.right - g::gameBounds.left,
-        g::gameBounds.bottom + g::gameBounds.left,
+        m_gameBounds.left,
+        m_gameBounds.top,
+        m_gameBounds.right - m_gameBounds.left,
+        m_gameBounds.bottom + m_gameBounds.left,
         NULL,
         NULL,
         m_hInstance,
@@ -416,27 +277,39 @@ void App::HandleKeyInput() {
         config::save();
         Beep(700, 100);
     }
+
+    // Toggle hardware acceleration
+    if (GetAsyncKeyState(VK_F10) & 0x8000) {
+        m_useHardwareAccel = !m_useHardwareAccel;
+        if (m_useHardwareAccel) {
+            // Try to initialize hardware renderer
+            HRESULT hr = render::g_hwRenderer.Initialize(m_hWnd);
+            if (SUCCEEDED(hr)) {
+                CLOG_INFO("[render] Hardware acceleration enabled");
+                Beep(800, 100);
+            }
+            else {
+                m_useHardwareAccel = false;
+                CLOG_WARN("[render] Failed to initialize hardware acceleration, staying with GDI");
+                Beep(400, 200);
+            }
+        }
+        else {
+            render::g_hwRenderer.Cleanup();
+            CLOG_INFO("[render] Hardware acceleration disabled, using GDI");
+            Beep(600, 100);
+        }
+        config::save();
+    }
 }
 
 void App::MessageLoop() {
     MSG msg;
-    while (!m_finish && (!m_glfwWindow || !glfwWindowShouldClose(m_glfwWindow))) {
-        // Handle Windows messages for overlay
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) {
-                m_finish = true;
-                break;
-            }
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-
-        if (m_finish) break;
-
+    while (GetMessage(&msg, NULL, 0, 0) && !m_finish) {
         HandleKeyInput();
 
-        // Render ImGui
-        RenderImGui();
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
@@ -448,6 +321,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
     switch (message) {
     case WM_CREATE:
     {
+        // Initialize GDI resources for fallback
         g::hdcBuffer = CreateCompatibleDC(NULL);
         g::hbmBuffer = CreateCompatibleBitmap(GetDC(hWnd), g::gameBounds.right, g::gameBounds.bottom);
         SelectObject(g::hdcBuffer, g::hbmBuffer);
@@ -455,8 +329,30 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
         SetLayeredWindowAttributes(hWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
 
+        // Initialize hardware acceleration if enabled
+        if (app && app->m_useHardwareAccel) {
+            HRESULT hr = render::g_hwRenderer.Initialize(hWnd);
+            if (SUCCEEDED(hr)) {
+                std::cout << "[render] Hardware acceleration initialized successfully" << std::endl;
+            }
+            else {
+                std::cout << "[render] Hardware acceleration failed to initialize, using GDI fallback" << std::endl;
+                app->m_useHardwareAccel = false;
+            }
+        }
+
         std::cout << "[overlay] Window created successfully" << std::endl;
         Beep(500, 100);
+        break;
+    }
+    case WM_SIZE:
+    {
+        // Handle window resize for hardware renderer
+        if (render::g_hwRenderer.IsInitialized()) {
+            UINT width = LOWORD(lParam);
+            UINT height = HIWORD(lParam);
+            render::g_hwRenderer.Resize(width, height);
+        }
         break;
     }
     case WM_ERASEBKGND: // We handle this message to avoid flickering
@@ -466,23 +362,52 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPa
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
 
-        //DOUBLE BUFFERING
-        FillRect(g::hdcBuffer, &ps.rcPaint, (HBRUSH)GetStockObject(WHITE_BRUSH));
+        bool useHardwareAccel = app && app->m_useHardwareAccel && render::g_hwRenderer.IsInitialized();
 
-        if (GetForegroundWindow() == g_game.process->hwnd_) {
-            //render::RenderText(g::hdcBuffer, 10, 10, "cs2 | ESP", RGB(75, 175, 175), 15);
-            hack::loop();
+        if (useHardwareAccel) {
+            // Use hardware accelerated rendering
+            render::g_hwRenderer.BeginDraw();
+
+            if (GetForegroundWindow() == g_game.process->hwnd_) {
+                hack::loop(); // Your ESP rendering code
+            }
+
+            HRESULT hr = render::g_hwRenderer.EndDraw();
+            if (FAILED(hr)) {
+                // Hardware rendering failed, fall back to GDI for this frame
+                std::cout << "[render] Hardware rendering failed, using GDI fallback" << std::endl;
+                useHardwareAccel = false;
+            }
         }
 
-        BitBlt(hdc, 0, 0, g::gameBounds.right, g::gameBounds.bottom, g::hdcBuffer, 0, 0, SRCCOPY);
+        if (!useHardwareAccel) {
+            // Use GDI double buffering (original method)
+            FillRect(g::hdcBuffer, &ps.rcPaint, (HBRUSH)GetStockObject(WHITE_BRUSH));
+
+            if (GetForegroundWindow() == g_game.process->hwnd_) {
+                hack::loop(); // Your ESP rendering code
+            }
+
+            BitBlt(hdc, 0, 0, g::gameBounds.right, g::gameBounds.bottom, g::hdcBuffer, 0, 0, SRCCOPY);
+        }
 
         EndPaint(hWnd, &ps);
         InvalidateRect(hWnd, NULL, TRUE);
         break;
     }
     case WM_DESTROY:
-        DeleteDC(g::hdcBuffer);
-        DeleteObject(g::hbmBuffer);
+        // Clean up hardware renderer
+        render::g_hwRenderer.Cleanup();
+
+        // Clean up GDI resources
+        if (g::hdcBuffer) {
+            DeleteDC(g::hdcBuffer);
+            g::hdcBuffer = nullptr;
+        }
+        if (g::hbmBuffer) {
+            DeleteObject(g::hbmBuffer);
+            g::hbmBuffer = nullptr;
+        }
         PostQuitMessage(0);
         break;
     default:
