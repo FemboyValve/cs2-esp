@@ -18,6 +18,16 @@
 #include <numbers>
 #include <wtypes.h>
 #include <mutex>
+#include <immintrin.h>
+#include <iomanip>
+#include <algorithm>
+#include <string_view>
+
+// DirectX
+#include <d2d1.h>
+#include <dwrite.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 // Thirdparty Libs
 #include <nlohmann/json.hpp>

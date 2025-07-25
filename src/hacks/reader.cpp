@@ -5,7 +5,7 @@
 #include "../classes/auto_updater.hpp"
 #include "../classes/config.hpp"
 
-std::map<std::string, int> boneMap = {
+static const std::unordered_map<std::string, int> boneMap = {
 	{"head", 6},
 	{"neck_0", 5},
 	{"spine_1", 4},
@@ -25,12 +25,16 @@ std::map<std::string, int> boneMap = {
 	{"ankle_R", 27}
 };
 
-// CC4
-uintptr_t CC4::get_planted() {
+// Constants for better performance
+constexpr float HEAD_OFFSET = 75.0f;
+constexpr size_t BONE_SIZE = 32;
+constexpr int HEAD_BONE_INDEX = 6;
+
+inline uintptr_t CC4::get_planted() {
 	return g_game.process->read<uintptr_t>(g_game.process->read<uintptr_t>(g_game.base_client.base + updater::offsets::dwPlantedC4));
 }
 
-uintptr_t CC4::get_node() {
+inline uintptr_t CC4::get_node() {
 	return g_game.process->read<uintptr_t>(get_planted() + updater::offsets::m_pGameSceneNode);
 }
 
@@ -40,13 +44,13 @@ Vector3 CC4::get_origin() {
 
 // CGame
 void CGame::init() {
-	std::cout << "[cs2] Waiting for cs2.exe..." << std::endl;
+	CLOG_INFO("[cs2] Waiting for cs2.exe...");
 
 	process = std::make_shared<pProcess>();
 	while (!process->AttachProcess("cs2.exe"))
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 
-	std::cout << "[cs2] Attached to cs2.exe\n" << std::endl;
+	CLOG_INFO("[cs2] Attached to cs2.exe");
 
 	do {
 		base_client = process->GetModule("client.dll");
@@ -102,10 +106,21 @@ void CGame::loop() {
 	isC4Planted = process->read<bool>(base_client.base + updater::offsets::dwPlantedC4 - 0x8);
 
 	inGame = true;
-	int playerIndex = 0;
+
+	// Pre-allocate vector with reasonable capacity to avoid reallocations
 	std::vector<CPlayer> list;
+	list.reserve(32); // Typical max players in CS2
+
+	// Cache config values to avoid repeated global access
+	const bool teamEsp = config::team_esp;
+	const bool showSkeletonEsp = config::show_skeleton_esp;
+	const bool showHeadTracker = config::show_head_tracker;
+	const bool showExtraFlags = config::show_extra_flags;
+	const int renderDistance = config::render_distance;
+
+	int playerIndex = 0;
 	CPlayer player;
-	uintptr_t list_entry, list_entry2, playerPawn, playerMoneyServices, clippingWeapon, weaponData, playerNameData;
+	uintptr_t list_entry, list_entry2, playerPawn, playerMoneyServices, clippingWeapon, weaponData;
 
 	while (true) {
 		playerIndex++;
@@ -115,14 +130,8 @@ void CGame::loop() {
 		player.entity = process->read<uintptr_t>(list_entry + 120 * (playerIndex & 0x1FF));
 		if (!player.entity) continue;
 
-		/**
-		* Skip rendering your own character and teammates
-		*
-		* If you really want you can exclude your own character from the check but
-		* since you are in the same team as yourself it will be excluded anyway
-		**/
 		player.team = process->read<int>(player.entity + updater::offsets::m_iTeamNum);
-		if (config::team_esp && (player.team == localTeam)) continue;
+		if (teamEsp && (player.team == localTeam)) continue;
 
 		playerPawn = process->read<std::uint32_t>(player.entity + updater::offsets::m_hPlayerPawn);
 
@@ -133,127 +142,141 @@ void CGame::loop() {
 		if (!player.pCSPlayerPawn) continue;
 
 		player.health = process->read<int>(player.pCSPlayerPawn + updater::offsets::m_iHealth);
-		player.armor = process->read<int>(player.pCSPlayerPawn + updater::offsets::m_ArmorValue);
 		if (player.health <= 0 || player.health > 100) continue;
 
-		if (config::team_esp && (player.pCSPlayerPawn == localPlayer)) continue;
+		player.armor = process->read<int>(player.pCSPlayerPawn + updater::offsets::m_ArmorValue);
 
-		/*
-		* Unused for now, but for a vis check
-		*
-		* player.spottedState = process->read<uintptr_t>(player.pCSPlayerPawn + 0x1630);
-		* player.is_spotted = process->read<DWORD_PTR>(player.spottedState + 0xC); // bSpottedByMask
-		* player.is_spotted = process->read<bool>(player.spottedState + 0x8); // bSpotted
-		*/
+		if (teamEsp && (player.pCSPlayerPawn == localPlayer)) continue;
 
-		// Read entity controller from the player pawn
-		uintptr_t handle = process->read<std::uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_hController);
-		int index = handle & 0x7FFF;
-		int segment = index >> 9;
-		int entry = index & 0x1FF;
+		// Read entity controller from the player pawn - optimized bit operations
+		const uintptr_t handle = process->read<std::uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_hController);
+		const int index = handle & 0x7FFF;
+		const int segment = index >> 9;
+		const int entry = index & 0x1FF;
 
-		uintptr_t controllerListSegment = process->read<uintptr_t>(entity_list + 0x8 * segment + 0x10);
-		uintptr_t controller = process->read<uintptr_t>(controllerListSegment + 120 * entry);
+		const uintptr_t controllerListSegment = process->read<uintptr_t>(entity_list + 0x8 * segment + 0x10);
+		const uintptr_t controller = process->read<uintptr_t>(controllerListSegment + 120 * entry);
 
-		if (!controller)
-			continue;
+		if (!controller) continue;
 
-		// Read player name from the controller
-		char buffer[256] = {};
-		process->read_raw(controller + updater::offsets::m_iszPlayerName, buffer, sizeof(buffer) - 1);
-		buffer[sizeof(buffer) - 1] = '\0';
-		player.name = buffer;
+		// Read player name from the controller - use static buffer to avoid allocations
+		static char nameBuffer[256];
+		process->read_raw(controller + updater::offsets::m_iszPlayerName, nameBuffer, sizeof(nameBuffer) - 1);
+		nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+		player.name = nameBuffer;
 
-		player.gameSceneNode = process->read<uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_pGameSceneNode);
 		player.origin = process->read<Vector3>(player.pCSPlayerPawn + updater::offsets::m_vOldOrigin);
-		player.head = { player.origin.x, player.origin.y, player.origin.z + 75.f };
 
-		if (player.origin.x == localOrigin.x && player.origin.y == localOrigin.y && player.origin.z == localOrigin.z)
-			continue;
-
-		if (config::render_distance != -1 && (localOrigin - player.origin).length2d() > config::render_distance) continue;
+		// Early origin validation
 		if (player.origin.x == 0 && player.origin.y == 0) continue;
+		if (player.origin.x == localOrigin.x && player.origin.y == localOrigin.y && player.origin.z == localOrigin.z) continue;
 
-		if (config::show_skeleton_esp) {
-			player.gameSceneNode = process->read<uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_pGameSceneNode);
-			player.boneArray = process->read<uintptr_t>(player.gameSceneNode + 0x1F0);
-			player.ReadBones();
+		// Distance check optimization - avoid sqrt when possible
+		if (renderDistance != -1) {
+			const float distanceSquared = (localOrigin - player.origin).length2d_squared();
+			if (distanceSquared > renderDistance * renderDistance) continue;
 		}
 
-		if (config::show_head_tracker && !config::show_skeleton_esp) {
+		// Pre-calculate head position
+		player.head = { player.origin.x, player.origin.y, player.origin.z + HEAD_OFFSET };
+
+		// Conditional bone reading based on what's actually needed
+		if (showSkeletonEsp || showHeadTracker) {
 			player.gameSceneNode = process->read<uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_pGameSceneNode);
 			player.boneArray = process->read<uintptr_t>(player.gameSceneNode + 0x1F0);
-			player.ReadHead();
+
+			if (showSkeletonEsp) {
+				player.ReadBones();
+			}
+			else if (showHeadTracker) {
+				player.ReadHead();
+			}
 		}
 
-		if (config::show_extra_flags) {
-			/*
-			* Reading values for extra flags is now separated from the other reads
-			* This removes unnecessary memory reads, improving performance when not showing extra flags
-			*/
+		if (showExtraFlags) {
+			// Batch read extra flag data to minimize memory reads
 			player.is_defusing = process->read<bool>(player.pCSPlayerPawn + updater::offsets::m_bIsDefusing);
+			player.flashAlpha = process->read<float>(player.pCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha);
 
 			playerMoneyServices = process->read<uintptr_t>(player.entity + updater::offsets::m_pInGameMoneyServices);
 			player.money = process->read<int32_t>(playerMoneyServices + updater::offsets::m_iAccount);
 
-			player.flashAlpha = process->read<float>(player.pCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha);
-
 			clippingWeapon = process->read<std::uint64_t>(player.pCSPlayerPawn + updater::offsets::m_pClippingWeapon);
-			std::uint64_t firstLevel = process->read<std::uint64_t>(clippingWeapon + 0x10); // First offset
-			weaponData = process->read<std::uint64_t>(firstLevel + 0x20); // Final offset
-			/*weaponData = process->read<std::uint64_t>(clippingWeapon + 0x10);
-			weaponData = process->read<std::uint64_t>(weaponData + updater::offsets::m_szName);*/
-			char buffer[MAX_PATH];
-			process->read_raw(weaponData, buffer, sizeof(buffer));
-			std::string weaponName = std::string(buffer);
-			if (weaponName.compare(0, 7, "weapon_") == 0)
-				player.weapon = weaponName.substr(7, weaponName.length()); // Remove weapon_ prefix
-			else
+			const std::uint64_t firstLevel = process->read<std::uint64_t>(clippingWeapon + 0x10);
+			weaponData = process->read<std::uint64_t>(firstLevel + 0x20);
+
+			static char weaponBuffer[MAX_PATH];
+			process->read_raw(weaponData, weaponBuffer, sizeof(weaponBuffer));
+			std::string weaponName = std::string(weaponBuffer);
+
+			if (weaponName.length() > 7 && weaponName.compare(0, 7, "weapon_") == 0) {
+				player.weapon = weaponName.substr(7);
+			}
+			else {
 				player.weapon = "Invalid Weapon Name";
+			}
 		}
 
-		list.push_back(player);
+		list.push_back(std::move(player));
 	}
 
-	players.clear();
-	players.assign(list.begin(), list.end());
+	// Use move semantics to avoid copy
+	players = std::move(list);
 }
 
-uintptr_t boneAddress;
-Vector3 bonePosition;
-int boneIndex;
+// Optimized bone reading functions
 void CPlayer::ReadHead() {
-	boneAddress = boneArray + 6 * 32;
-	bonePosition = g_game.process->read<Vector3>(boneAddress);
+	const uintptr_t boneAddress = boneArray + HEAD_BONE_INDEX * BONE_SIZE;
+	Vector3 bonePosition = g_game.process->read<Vector3>(boneAddress);
 	bones.bonePositions["head"] = g_game.world_to_screen(&bonePosition);
-
 }
 
 void CPlayer::ReadBones() {
-	for (const auto& entry : boneMap) {
-		const std::string& boneName = entry.first;
-		boneIndex = entry.second;
-		boneAddress = boneArray + boneIndex * 32;
+	// Pre-allocate map capacity
+	for (const auto& [boneName, boneIndex] : boneMap) {
+		bones.bonePositions.emplace(boneName, Vector3());
+	}
+
+	Vector3 bonePosition;
+	for (const auto& [boneName, boneIndex] : boneMap) {
+		const uintptr_t boneAddress = boneArray + boneIndex * BONE_SIZE;
 		bonePosition = g_game.process->read<Vector3>(boneAddress);
 		bones.bonePositions[boneName] = g_game.world_to_screen(&bonePosition);
 	}
 }
 
 Vector3 CGame::world_to_screen(Vector3* v) {
-	float _x = view_matrix[0][0] * v->x + view_matrix[0][1] * v->y + view_matrix[0][2] * v->z + view_matrix[0][3];
-	float _y = view_matrix[1][0] * v->x + view_matrix[1][1] * v->y + view_matrix[1][2] * v->z + view_matrix[1][3];
+	// Cache input values to avoid repeated dereferencing
+	const float vx = v->x;
+	const float vy = v->y;
+	const float vz = v->z;
 
-	float w = view_matrix[3][0] * v->x + view_matrix[3][1] * v->y + view_matrix[3][2] * v->z + view_matrix[3][3];
+	// Pre-load matrix rows for better cache performance
+	const float* const row0 = view_matrix[0];
+	const float* const row1 = view_matrix[1];
+	const float* const row3 = view_matrix[3];
 
-	float inv_w = 1.f / w;
-	_x *= inv_w;
-	_y *= inv_w;
+	// Compute transformed coordinates with fewer memory accesses
+	const float x = row0[0] * vx + row0[1] * vy + row0[2] * vz + row0[3];
+	const float y = row1[0] * vx + row1[1] * vy + row1[2] * vz + row1[3];
+	const float w = row3[0] * vx + row3[1] * vy + row3[2] * vz + row3[3];
 
-	float x = game_bounds.right * .5f;
-	float y = game_bounds.bottom * .5f;
+	// Early return for invalid w with const comparison
+	constexpr float MIN_W = 0.001f;
+	if (w < MIN_W) return { 0, 0, -1 };
 
-	x += 0.5f * _x * game_bounds.right + 0.5f;
-	y -= 0.5f * _y * game_bounds.bottom + 0.5f;
+	// Perspective divide with single division
+	const float inv_w = 1.0f / w;
+	const float norm_x = x * inv_w;
+	const float norm_y = y * inv_w;
 
-	return { x, y, w };
+	// Pre-calculate constants for screen conversion
+	const float half_width = game_bounds.right * 0.5f;
+	const float half_height = game_bounds.bottom * 0.5f;
+
+	// Convert to screen coordinates with optimized calculations
+	const float screen_x = half_width + norm_x * half_width;
+	const float screen_y = half_height - norm_y * half_height;
+
+	return { screen_x, screen_y, w };
 }
