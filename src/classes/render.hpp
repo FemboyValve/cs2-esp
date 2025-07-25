@@ -51,9 +51,10 @@ namespace render
 
             D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
 
+            // Use IGNORE alpha mode for overlay transparency compatibility
             D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
-                D2D1_RENDER_TARGET_TYPE_HARDWARE, // Force hardware acceleration
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                D2D1_RENDER_TARGET_TYPE_HARDWARE,
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
                 0, 0, // Default DPI
                 D2D1_RENDER_TARGET_USAGE_NONE,
                 D2D1_FEATURE_LEVEL_DEFAULT
@@ -62,7 +63,7 @@ namespace render
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwndRtProps = D2D1::HwndRenderTargetProperties(
                 hWnd,
                 size,
-                D2D1_PRESENT_OPTIONS_IMMEDIATELY // For better overlay performance
+                D2D1_PRESENT_OPTIONS_NONE
             );
 
             hr = m_pD2DFactory->CreateHwndRenderTarget(
@@ -83,7 +84,7 @@ namespace render
             hr = m_pWriteFactory->CreateTextFormat(
                 L"Arial",
                 nullptr,
-                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_WEIGHT_BOLD,
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
                 12.0f,
@@ -91,6 +92,9 @@ namespace render
                 &m_pTextFormat);
 
             if (FAILED(hr)) return hr;
+
+            // Set single line rendering
+            m_pTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
             m_initialized = true;
             return hr;
@@ -110,8 +114,8 @@ namespace render
         void BeginDraw() {
             if (m_pRenderTarget) {
                 m_pRenderTarget->BeginDraw();
-                // Clear with fully transparent background
-                m_pRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+                // Clear with white to match the colorkey transparency
+                m_pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
             }
         }
 
@@ -135,33 +139,30 @@ namespace render
             }
         }
 
-        void DrawLine(int x1, int y1, int x2, int y2, COLORREF color, float strokeWidth = 2.0f) {
+        void DrawLine(int x1, int y1, int x2, int y2, COLORREF color) {
             if (!m_pRenderTarget) return;
-
             SetBrushColor(color);
             m_pRenderTarget->DrawLine(
                 D2D1::Point2F(static_cast<float>(x1), static_cast<float>(y1)),
                 D2D1::Point2F(static_cast<float>(x2), static_cast<float>(y2)),
                 m_pBrush.Get(),
-                strokeWidth
+                2.0f
             );
         }
 
-        void DrawCircle(int x, int y, int radius, COLORREF color, float strokeWidth = 2.0f) {
+        void DrawCircle(int x, int y, int radius, COLORREF color) {
             if (!m_pRenderTarget) return;
-
             SetBrushColor(color);
             D2D1_ELLIPSE ellipse = D2D1::Ellipse(
                 D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)),
                 static_cast<float>(radius),
                 static_cast<float>(radius)
             );
-            m_pRenderTarget->DrawEllipse(ellipse, m_pBrush.Get(), strokeWidth);
+            m_pRenderTarget->DrawEllipse(ellipse, m_pBrush.Get(), 2.0f);
         }
 
-        void DrawBorderBox(int x, int y, int w, int h, COLORREF borderColor, float strokeWidth = 2.0f) {
+        void DrawBorderBox(int x, int y, int w, int h, COLORREF borderColor) {
             if (!m_pRenderTarget) return;
-
             SetBrushColor(borderColor);
             D2D1_RECT_F rect = D2D1::RectF(
                 static_cast<float>(x),
@@ -169,12 +170,11 @@ namespace render
                 static_cast<float>(x + w),
                 static_cast<float>(y + h)
             );
-            m_pRenderTarget->DrawRectangle(rect, m_pBrush.Get(), strokeWidth);
+            m_pRenderTarget->DrawRectangle(rect, m_pBrush.Get(), 2.0f);
         }
 
         void DrawFilledBox(int x, int y, int width, int height, COLORREF color) {
             if (!m_pRenderTarget) return;
-
             SetBrushColor(color);
             D2D1_RECT_F rect = D2D1::RectF(
                 static_cast<float>(x),
@@ -200,7 +200,7 @@ namespace render
             HRESULT hr = m_pWriteFactory->CreateTextFormat(
                 L"Arial",
                 nullptr,
-                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_WEIGHT_BOLD,
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
                 static_cast<float>(textSize),
@@ -209,21 +209,98 @@ namespace render
 
             if (FAILED(hr)) return;
 
-            SetBrushColor(textColor);
+            // Force single line rendering with multiple settings
+            textFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 
-            // Calculate text layout area
-            D2D1_RECT_F layoutRect = D2D1::RectF(
-                static_cast<float>(x),
-                static_cast<float>(y),
-                static_cast<float>(x + 1000), // Large width for single line
-                static_cast<float>(y + textSize + 10)
-            );
-
-            m_pRenderTarget->DrawText(
+            // Create text layout for better control
+            ComPtr<IDWriteTextLayout> textLayout;
+            hr = m_pWriteFactory->CreateTextLayout(
                 wideText.c_str(),
                 static_cast<UINT32>(wideText.length()),
                 textFormat.Get(),
-                layoutRect,
+                10000.0f,  // Very wide max width to prevent wrapping
+                static_cast<float>(textSize + 10),  // Height
+                &textLayout);
+
+            if (FAILED(hr)) {
+                // Fallback to original method if layout creation fails
+                textFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+                // Simple text outline for readability
+                // Draw black outline
+                m_pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
+                for (int ox = -1; ox <= 1; ox++) {
+                    for (int oy = -1; oy <= 1; oy++) {
+                        if (ox == 0 && oy == 0) continue;
+
+                        D2D1_RECT_F layoutRect = D2D1::RectF(
+                            static_cast<float>(x + ox),
+                            static_cast<float>(y + oy),
+                            static_cast<float>(x + ox + 10000),  // Much wider
+                            static_cast<float>(y + oy + textSize + 10)
+                        );
+
+                        m_pRenderTarget->DrawText(
+                            wideText.c_str(),
+                            static_cast<UINT32>(wideText.length()),
+                            textFormat.Get(),
+                            layoutRect,
+                            m_pBrush.Get()
+                        );
+                    }
+                }
+
+                // Draw main text
+                SetBrushColor(textColor);
+                D2D1_RECT_F layoutRect = D2D1::RectF(
+                    static_cast<float>(x),
+                    static_cast<float>(y),
+                    static_cast<float>(x + 10000),  // Much wider
+                    static_cast<float>(y + textSize + 10)
+                );
+
+                m_pRenderTarget->DrawText(
+                    wideText.c_str(),
+                    static_cast<UINT32>(wideText.length()),
+                    textFormat.Get(),
+                    layoutRect,
+                    m_pBrush.Get()
+                );
+                return;
+            }
+
+            // Use text layout for better control
+            // Draw black outline
+            m_pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
+            for (int ox = -1; ox <= 1; ox++) {
+                for (int oy = -1; oy <= 1; oy++) {
+                    if (ox == 0 && oy == 0) continue;
+
+                    D2D1_POINT_2F origin = D2D1::Point2F(
+                        static_cast<float>(x + ox),
+                        static_cast<float>(y + oy)
+                    );
+
+                    m_pRenderTarget->DrawTextLayout(
+                        origin,
+                        textLayout.Get(),
+                        m_pBrush.Get()
+                    );
+                }
+            }
+
+            // Draw main text
+            SetBrushColor(textColor);
+            D2D1_POINT_2F origin = D2D1::Point2F(
+                static_cast<float>(x),
+                static_cast<float>(y)
+            );
+
+            m_pRenderTarget->DrawTextLayout(
+                origin,
+                textLayout.Get(),
                 m_pBrush.Get()
             );
         }
@@ -239,7 +316,6 @@ namespace render
         }
 
         HRESULT CreateDeviceResources() {
-            // Recreate render target if device was lost
             if (m_pRenderTarget) {
                 m_pRenderTarget.Reset();
                 m_pBrush.Reset();
@@ -251,15 +327,21 @@ namespace render
 
             D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
                 D2D1_RENDER_TARGET_TYPE_HARDWARE,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
                 0, 0,
                 D2D1_RENDER_TARGET_USAGE_NONE,
                 D2D1_FEATURE_LEVEL_DEFAULT
             );
 
+            D2D1_HWND_RENDER_TARGET_PROPERTIES hwndRtProps = D2D1::HwndRenderTargetProperties(
+                m_hWnd,
+                size,
+                D2D1_PRESENT_OPTIONS_NONE
+            );
+
             HRESULT hr = m_pD2DFactory->CreateHwndRenderTarget(
                 rtProps,
-                D2D1::HwndRenderTargetProperties(m_hWnd, size),
+                hwndRtProps,
                 &m_pRenderTarget);
 
             if (SUCCEEDED(hr)) {
@@ -275,13 +357,13 @@ namespace render
     // Global hardware renderer instance
     extern HardwareRenderer g_hwRenderer;
 
-    // Updated function signatures to maintain compatibility
+    // Main rendering functions that match your original API exactly
     inline void DrawLine(HDC hdc, int x1, int y1, int x2, int y2, COLORREF color) {
         if (g_hwRenderer.IsInitialized()) {
             g_hwRenderer.DrawLine(x1, y1, x2, y2, color);
         }
         else {
-            // Fallback to GDI
+            // Your original GDI implementation
             HPEN hPen = CreatePen(PS_SOLID, 2, color);
             HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
             MoveToEx(hdc, x1, y1, NULL);
@@ -296,7 +378,7 @@ namespace render
             g_hwRenderer.DrawCircle(x, y, radius, color);
         }
         else {
-            // Fallback to GDI
+            // Your original GDI implementation
             HPEN hPen = CreatePen(PS_SOLID, 2, color);
             HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
             Arc(hdc, x - radius, y - radius, x + radius, y + radius * 1.5, 0, 0, 0, 0);
@@ -310,10 +392,12 @@ namespace render
             g_hwRenderer.DrawBorderBox(x, y, w, h, borderColor);
         }
         else {
-            // Fallback to GDI
+            // Your original GDI implementation
             HBRUSH hBorderBrush = CreateSolidBrush(borderColor);
+            HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBorderBrush);
             RECT rect = { x, y, x + w, y + h };
             FrameRect(hdc, &rect, hBorderBrush);
+            SelectObject(hdc, hOldBrush);
             DeleteObject(hBorderBrush);
         }
     }
@@ -323,7 +407,7 @@ namespace render
             g_hwRenderer.DrawFilledBox(x, y, width, height, color);
         }
         else {
-            // Fallback to GDI
+            // Your original GDI implementation
             HBRUSH hBrush = CreateSolidBrush(color);
             RECT rect = { x, y, x + width, y + height };
             FillRect(hdc, &rect, hBrush);
@@ -331,12 +415,9 @@ namespace render
         }
     }
 
-    inline void RenderText(HDC hdc, int x, int y, const char* text, COLORREF textColor, int textSize) {
-        if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.RenderText(x, y, text, textColor, textSize);
-        }
-        else {
-            // Fallback to GDI (your existing implementation)
+    inline void SetTextSize(HDC hdc, int textSize) {
+        // Only needed for GDI fallback
+        if (!g_hwRenderer.IsInitialized()) {
             LOGFONT lf;
             HFONT hFont, hOldFont;
             ZeroMemory(&lf, sizeof(LOGFONT));
@@ -345,22 +426,23 @@ namespace render
             lf.lfQuality = ANTIALIASED_QUALITY;
             hFont = CreateFontIndirect(&lf);
             hOldFont = (HFONT)SelectObject(hdc, hFont);
-            SetTextColor(hdc, textColor);
+            DeleteObject(hOldFont);
+        }
+    }
 
+    inline void RenderText(HDC hdc, int x, int y, const char* text, COLORREF textColor, int textSize) {
+        if (g_hwRenderer.IsInitialized()) {
+            g_hwRenderer.RenderText(x, y, text, textColor, textSize);
+        }
+        else {
+            // Your original GDI implementation
+            SetTextSize(hdc, textSize);
+            SetTextColor(hdc, textColor);
             int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
             wchar_t* wide_text = new wchar_t[len];
             MultiByteToWideChar(CP_UTF8, 0, text, -1, wide_text, len);
             TextOutW(hdc, x, y, wide_text, len - 1);
             delete[] wide_text;
-
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
         }
-    }
-
-    // Helper function to set text size (for compatibility)
-    inline void SetTextSize(HDC hdc, int textSize) {
-        // This function is no longer needed with Direct2D as text size is set per draw call
-        // Kept for compatibility but does nothing when hardware acceleration is active
     }
 }
