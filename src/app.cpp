@@ -12,11 +12,12 @@
 // Static member initialization
 App* App::s_instance = nullptr;
 
-App::App() : m_hWnd(nullptr), m_hInstance(nullptr), m_finish(false),
-m_hdcBuffer(nullptr), m_hbmBuffer(nullptr), m_glfwWindow(nullptr),
-m_showImGuiDemo(false), m_showConfigWindow(true), m_imguiInitialized(false) {
+App::App() : m_hWnd(nullptr), m_hInstance(nullptr), m_finish(false), m_glfwWindow(nullptr),
+m_showConfigWindow(true), m_imguiInitialized(false) {
     s_instance = this;
-    ZeroMemory(&m_gameBounds, sizeof(RECT));
+    ZeroMemory(&g::gameBounds, sizeof(RECT));
+    g::hdcBuffer = nullptr;
+	g::hbmBuffer = nullptr;
 }
 
 App::~App() {
@@ -118,11 +119,6 @@ void App::RenderImGui() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Show ImGui demo window (optional)
-    if (m_showImGuiDemo) {
-        ImGui::ShowDemoWindow(&m_showImGuiDemo);
-    }
-
     // Main configuration window
     if (m_showConfigWindow) {
         ImGui::Begin("CS2 ESP Configuration", &m_showConfigWindow);
@@ -173,13 +169,6 @@ void App::RenderImGui() {
             config::show_head_tracker = headTracker;
             config::save();
         }
-
-        ImGui::Separator();
-
-        // Debug/Demo options
-        ImGui::Checkbox("Show ImGui Demo", &m_showImGuiDemo);
-
-        ImGui::Separator();
 
         // Exit button
         if (ImGui::Button("Exit ESP (END)")) {
@@ -345,10 +334,7 @@ bool App::CreateOverlayWindow() {
         return false;
     }
 
-    GetClientRect(g_game.process->hwnd_, &m_gameBounds);
-
-    // Store in global for compatibility with original code
-    g::gameBounds = m_gameBounds;
+    GetClientRect(g_game.process->hwnd_, &g::gameBounds);
 
     m_hInstance = NULL; // Like original
     m_hWnd = CreateWindowExA(
@@ -356,10 +342,10 @@ bool App::CreateOverlayWindow() {
         " ",
         "cs2-external-esp",
         WS_POPUP,
-        m_gameBounds.left,
-        m_gameBounds.top,
-        m_gameBounds.right - m_gameBounds.left,
-        m_gameBounds.bottom + m_gameBounds.left,
+        g::gameBounds.left,
+        g::gameBounds.top,
+        g::gameBounds.right - g::gameBounds.left,
+        g::gameBounds.bottom + g::gameBounds.left,
         NULL,
         NULL,
         m_hInstance,

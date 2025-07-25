@@ -17,14 +17,8 @@ private:
     bool m_finish;
     std::thread m_readThread;
 
-    // Keep local copies but use globals for compatibility
-    HDC m_hdcBuffer;
-    HBITMAP m_hbmBuffer;
-    RECT m_gameBounds;
-
     // ImGui/GLFW members
     GLFWwindow* m_glfwWindow;
-    bool m_showImGuiDemo;
     bool m_showConfigWindow;
     bool m_imguiInitialized;
 
