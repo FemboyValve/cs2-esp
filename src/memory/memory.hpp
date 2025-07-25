@@ -33,7 +33,7 @@ public:
 	bool AttachProcessHj(const char* process_name);
 	bool AttachWindow(const char* window_name);
 	bool UpdateHWND();
-	void Close();
+	bool Close();
 
 public:
 	ProcessModule GetModule(const char* module_name);

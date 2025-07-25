@@ -263,7 +263,7 @@ uintptr_t pProcess::FindCodeCave(uint32_t length_in_bytes)
 	return FindSignature(cave_pattern);
 }
 
-void pProcess::Close()
+bool pProcess::Close()
 {
-	CloseHandle(handle_);
+	return CloseHandle(handle_);
 }

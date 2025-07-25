@@ -63,8 +63,15 @@ void CGame::init() {
 }
 
 void CGame::close() {
-	std::cout << "[cs2] Deatachig from process" << std::endl;
-	process->Close();
+	CLOG_INFO("Deatachig from process...");
+	if (process->Close())
+	{
+		CLOG_INFO("Detachted from process successfully!");
+	}
+	else
+	{
+		CLOG_ERROR("Error while detaching from process!");
+	}
 }
 
 void CGame::loop() {
