@@ -16,9 +16,9 @@ App* App::s_instance = nullptr;
 render::HardwareRenderer render::g_hwRenderer;
 
 App::App() : m_hWnd(nullptr), m_hInstance(nullptr), m_finish(false),
-m_hdcBuffer(nullptr), m_hbmBuffer(nullptr), m_useHardwareAccel(true) {
+ m_useHardwareAccel(true) {
     s_instance = this;
-    ZeroMemory(&m_gameBounds, sizeof(RECT));
+    ZeroMemory(&g::gameBounds, sizeof(RECT));
 }
 
 App::~App() {
@@ -192,10 +192,7 @@ bool App::CreateOverlayWindow() {
         return false;
     }
 
-    GetClientRect(g_game.process->hwnd_, &m_gameBounds);
-
-    // Store in global for compatibility with original code
-    g::gameBounds = m_gameBounds;
+    GetClientRect(g_game.process->hwnd_, &g::gameBounds);
 
     m_hInstance = NULL; // Like original
     m_hWnd = CreateWindowExA(
@@ -203,10 +200,10 @@ bool App::CreateOverlayWindow() {
         " ",
         "cs2-external-esp",
         WS_POPUP,
-        m_gameBounds.left,
-        m_gameBounds.top,
-        m_gameBounds.right - m_gameBounds.left,
-        m_gameBounds.bottom + m_gameBounds.left,
+        g::gameBounds.left,
+        g::gameBounds.top,
+        g::gameBounds.right - g::gameBounds.left,
+        g::gameBounds.bottom + g::gameBounds.left,
         NULL,
         NULL,
         m_hInstance,

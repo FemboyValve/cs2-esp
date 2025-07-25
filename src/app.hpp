@@ -11,11 +11,6 @@ private:
     bool m_finish;
     std::thread m_readThread;
 
-    // Keep local copies but use globals for compatibility
-    HDC m_hdcBuffer;
-    HBITMAP m_hbmBuffer;
-    RECT m_gameBounds;
-
     // Hardware acceleration toggle
     bool m_useHardwareAccel;
 
