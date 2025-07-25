@@ -18,10 +18,11 @@ add_compile_definitions(
 file(GLOB_RECURSE SOURCE_FILES_CS2 "src/*.cpp")
 file(GLOB_RECURSE HEADER_FILES_CS2 "src/*.h" "src/*.hpp")
 
-add_executable(${PROJECT_NAME}
-    ${SOURCE_FILES_CS2}
-    ${HEADER_FILES_CS2}
-)
+if(WIN32)
+    add_executable(${PROJECT_NAME} WIN32 ${SOURCE_FILES_CS2} ${HEADER_FILES_CS2})
+else() 
+    add_executable(${PROJECT_NAME} ${SOURCE_FILES_CS2} ${HEADER_FILES_CS2})
+endif()
 
 #add thirdparty libs
 add_subdirectory(3rdparty)
@@ -39,6 +40,9 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Release>:NDEBUG _UC _CONSOLE>
 )
 
+#find OPENGL
+find_package(OpenGL REQUIRED)
+
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Gdi32
     User32
@@ -47,6 +51,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json
     fmt
     quill
+    glfw
+    imgui
+    OpenGL::GL
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

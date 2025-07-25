@@ -4,6 +4,12 @@
 #include <chrono>
 #include <iostream>
 
+// ImGui includes
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+#include <GLFW/glfw3.h>
+
 class App {
 private:
     HWND m_hWnd;
@@ -16,6 +22,12 @@ private:
     HBITMAP m_hbmBuffer;
     RECT m_gameBounds;
 
+    // ImGui/GLFW members
+    GLFWwindow* m_glfwWindow;
+    bool m_showImGuiDemo;
+    bool m_showConfigWindow;
+    bool m_imguiInitialized;
+
     // Private methods
     bool InitializeOffsets();
     bool InitializeConfig();
@@ -23,9 +35,12 @@ private:
     void CheckForUpdates();
 #endif
     bool CreateOverlayWindow();
+    bool InitializeImGui();
     void StartReadThread();
     void HandleKeyInput();
     void MessageLoop();
+    void RenderImGui();
+    void CleanupImGui();
 
     // Thread function
     void ReadThreadFunction();
