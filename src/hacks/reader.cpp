@@ -1,10 +1,7 @@
 #include "reader.hpp"
-#include <thread>
-#include <map>
-#include <cmath>
 #include "classes/auto_updater.hpp"
 #include "classes/config.hpp"
-#include "classes/render.hpp"
+#include "classes/renderer.hpp"
 #include "window.hpp"
 
 static const std::unordered_map<std::string, int> boneMap = {

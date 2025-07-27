@@ -9,11 +9,6 @@ private:
     
     HWND m_hWnd;
     HINSTANCE m_hInstance;
-    bool m_useHardwareAccel;
-    
-    // GDI resources
-    HDC m_hdcBuffer;
-    HBITMAP m_hbmBuffer;
     RECT m_gameBounds;
 
     // Private constructor for singleton
@@ -31,30 +26,19 @@ public:
     static void DestroyInstance();
 
     // Window management
-    bool Initialize(bool useHardwareAccel = true);
+    bool Initialize();
     void Cleanup();
     bool IsValid() const { return m_hWnd != nullptr; }
 
     // Accessors
     HWND GetHWND() const { return m_hWnd; }
-    HDC GetBufferDC() const { return m_hdcBuffer; }
     const RECT& GetGameBounds() const { return m_gameBounds; }
     
     // Static convenience methods
-    static HDC GetCurrentBufferDC() {
-        OverlayWindow* instance = GetInstance();
-        return instance ? instance->GetBufferDC() : nullptr;
-    }
-    
     static HWND GetCurrentHWND() {
         OverlayWindow* instance = GetInstance();
         return instance ? instance->GetHWND() : nullptr;
     }
-
-    // Hardware acceleration control
-    bool IsHardwareAccelEnabled() const { return m_useHardwareAccel; }
-    void SetHardwareAcceleration(bool enable);
-    void ToggleHardwareAcceleration();
 
     // Window operations
     void Show();

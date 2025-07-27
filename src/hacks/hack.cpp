@@ -39,7 +39,6 @@ namespace hack {
 				float width = height * 1.4f;
 
 				render::DrawFilledBox(
-					OverlayWindow::GetCurrentBufferDC(),
 					c4ScreenPos.x - (width / 2),
 					c4ScreenPos.y - (height / 2),
 					width,
@@ -48,7 +47,6 @@ namespace hack {
 				);
 
 				render::RenderText(
-					OverlayWindow::GetCurrentBufferDC(),
 					c4ScreenPos.x + (width / 2 + 5),
 					c4ScreenPos.y,
 					"C4",
@@ -60,7 +58,7 @@ namespace hack {
 
 		std::stringstream ss;
 		ss << "Flash Alpha: " << std::fixed << std::setprecision(2) << g_game.m_flashAlpha;
-		render::RenderText(OverlayWindow::GetCurrentBufferDC(), 10, 10, ss.str().c_str(), config::esp_name_color, 10);
+		render::RenderText(10, 10, ss.str().c_str(), config::esp_name_color, 10);
 
 		int playerIndex = 0;
 		uintptr_t list_entry;
@@ -83,7 +81,6 @@ namespace hack {
 
 			if (config::show_head_tracker) {
 				render::DrawCircle(
-					OverlayWindow::GetCurrentBufferDC(),
 					player->bones.bonePositions["head"].x,
 					player->bones.bonePositions["head"].y - width / 12,
 					width / 5,
@@ -97,7 +94,6 @@ namespace hack {
 					const std::string& boneTo = connection.second;
 
 					render::DrawLine(
-						OverlayWindow::GetCurrentBufferDC(),
 						player->bones.bonePositions[boneFrom].x, player->bones.bonePositions[boneFrom].y,
 						player->bones.bonePositions[boneTo].x, player->bones.bonePositions[boneTo].y,
 						g_game.localTeam == player->team ? config::esp_skeleton_color_team : config::esp_skeleton_color_enemy
@@ -107,7 +103,6 @@ namespace hack {
 
 			if (config::show_box_esp) {
 				render::DrawBorderBox(
-					OverlayWindow::GetCurrentBufferDC(),
 					screenHead.x - width / 2,
 					screenHead.y,
 					width,
@@ -117,7 +112,6 @@ namespace hack {
 			}
 
 			render::DrawBorderBox(
-				OverlayWindow::GetCurrentBufferDC(),
 				screenHead.x - (width / 2 + 10),
 				screenHead.y + (height * (100 - player->armor) / 100),
 				2,
@@ -126,7 +120,6 @@ namespace hack {
 			);
 
 			render::DrawBorderBox(
-				OverlayWindow::GetCurrentBufferDC(),
 				screenHead.x - (width / 2 + 5),
 				screenHead.y + (height * (100 - player->health) / 100),
 				2,
@@ -139,7 +132,6 @@ namespace hack {
 			);
 
 			render::RenderText(
-				OverlayWindow::GetCurrentBufferDC(),
 				screenHead.x + (width / 2 + 5),
 				screenHead.y,
 				player->name.c_str(),
@@ -151,7 +143,6 @@ namespace hack {
 				continue;
 
 			render::RenderText(
-				OverlayWindow::GetCurrentBufferDC(),
 				screenHead.x + (width / 2 + 5),
 				screenHead.y + 10,
 				(std::to_string(player->health) + "hp").c_str(),
@@ -164,7 +155,6 @@ namespace hack {
 			);
 
 			render::RenderText(
-				OverlayWindow::GetCurrentBufferDC(),
 				screenHead.x + (width / 2 + 5),
 				screenHead.y + 20,
 				(std::to_string(player->armor) + "armor").c_str(),
@@ -178,7 +168,6 @@ namespace hack {
 
 			if (config::show_extra_flags) {
 				render::RenderText(
-					OverlayWindow::GetCurrentBufferDC(),
 					screenHead.x + (width / 2 + 5),
 					screenHead.y + 30,
 					player->weapon.c_str(),
@@ -187,7 +176,6 @@ namespace hack {
 				);
 
 				render::RenderText(
-					OverlayWindow::GetCurrentBufferDC(),
 					screenHead.x + (width / 2 + 5),
 					screenHead.y + 40,
 					(std::to_string(roundedDistance) + "m away").c_str(),
@@ -196,7 +184,6 @@ namespace hack {
 				);
 
 				render::RenderText(
-					OverlayWindow::GetCurrentBufferDC(),
 					screenHead.x + (width / 2 + 5),
 					screenHead.y + 50,
 					("$" + std::to_string(player->money)).c_str(),
@@ -206,7 +193,6 @@ namespace hack {
 
 				if (player->flashAlpha > 100) {
 					render::RenderText(
-						OverlayWindow::GetCurrentBufferDC(),
 						screenHead.x + (width / 2 + 5),
 						screenHead.y + 60,
 						"Player is flashed",
@@ -218,7 +204,6 @@ namespace hack {
 				if (player->is_defusing) {
 					const std::string defuText = "Player is defusing";
 					render::RenderText(
-						OverlayWindow::GetCurrentBufferDC(),
 						screenHead.x + (width / 2 + 5),
 						screenHead.y + 60,
 						defuText.c_str(),

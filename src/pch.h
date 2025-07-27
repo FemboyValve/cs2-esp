@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <string_view>
 #include <xmmintrin.h>
+#include <map>
 
 // DirectX
 #include <d2d1.h>

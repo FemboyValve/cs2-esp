@@ -1,9 +1,5 @@
 #pragma once
 
-#include <unordered_map>
-#include <vector>
-#include <mutex>
-
 using Microsoft::WRL::ComPtr;
 
 namespace render
@@ -105,6 +101,7 @@ namespace render
         }
 
         void Cleanup() {
+            std::lock_guard<std::mutex> lock(m_renderMutex);
             
             m_textFormatCache.clear();
             m_pBrush.Reset();
@@ -437,94 +434,24 @@ namespace render
     // Global hardware renderer instance
     extern HardwareRenderer g_hwRenderer;
 
-    // Main rendering functions that match your original API exactly
-    inline void DrawLine(HDC hdc, int x1, int y1, int x2, int y2, COLORREF color) {
-        if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.DrawLine(x1, y1, x2, y2, color);
-        }
-        else {
-            // Your original GDI implementation
-            HPEN hPen = CreatePen(PS_SOLID, 2, color);
-            HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-            MoveToEx(hdc, x1, y1, NULL);
-            LineTo(hdc, x2, y2);
-            SelectObject(hdc, hOldPen);
-            DeleteObject(hPen);
-        }
+    // Main rendering functions - now only use hardware acceleration
+    inline void DrawLine(int x1, int y1, int x2, int y2, COLORREF color) {
+        g_hwRenderer.DrawLine(x1, y1, x2, y2, color);
     }
 
-    inline void DrawCircle(HDC hdc, int x, int y, int radius, COLORREF color) {
-        if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.DrawCircle(x, y, radius, color);
-        }
-        else {
-            // Your original GDI implementation
-            HPEN hPen = CreatePen(PS_SOLID, 2, color);
-            HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-            Arc(hdc, x - radius, y - radius, x + radius, y + radius * 1.5, 0, 0, 0, 0);
-            SelectObject(hdc, hOldPen);
-            DeleteObject(hPen);
-        }
+    inline void DrawCircle(int x, int y, int radius, COLORREF color) {
+        g_hwRenderer.DrawCircle(x, y, radius, color);
     }
 
-    inline void DrawBorderBox(HDC hdc, int x, int y, int w, int h, COLORREF borderColor) {
-        if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.DrawBorderBox(x, y, w, h, borderColor);
-        }
-        else {
-            // Your original GDI implementation
-            HBRUSH hBorderBrush = CreateSolidBrush(borderColor);
-            HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBorderBrush);
-            RECT rect = { x, y, x + w, y + h };
-            FrameRect(hdc, &rect, hBorderBrush);
-            SelectObject(hdc, hOldBrush);
-            DeleteObject(hBorderBrush);
-        }
+    inline void DrawBorderBox(int x, int y, int w, int h, COLORREF borderColor) {
+        g_hwRenderer.DrawBorderBox(x, y, w, h, borderColor);
     }
 
-    inline void DrawFilledBox(HDC hdc, int x, int y, int width, int height, COLORREF color) {
-        if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.DrawFilledBox(x, y, width, height, color);
-        }
-        else {
-            // Your original GDI implementation
-            HBRUSH hBrush = CreateSolidBrush(color);
-            RECT rect = { x, y, x + width, y + height };
-            FillRect(hdc, &rect, hBrush);
-            DeleteObject(hBrush);
-        }
+    inline void DrawFilledBox(int x, int y, int width, int height, COLORREF color) {
+        g_hwRenderer.DrawFilledBox(x, y, width, height, color);
     }
 
-    inline void SetTextSize(HDC hdc, int textSize) {
-        // Only needed for GDI fallback
-        if (!g_hwRenderer.IsInitialized()) {
-            LOGFONT lf;
-            HFONT hFont, hOldFont;
-            ZeroMemory(&lf, sizeof(LOGFONT));
-            lf.lfHeight = -textSize;
-            lf.lfWeight = FW_NORMAL;
-            lf.lfQuality = ANTIALIASED_QUALITY;
-            hFont = CreateFontIndirect(&lf);
-            hOldFont = (HFONT)SelectObject(hdc, hFont);
-            DeleteObject(hOldFont);
-        }
-    }
-
-    inline void RenderText(HDC hdc, int x, int y, const char* text, COLORREF textColor, int fontSize) {
-        if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.RenderText(x, y, text, textColor, fontSize);
-        }
-        else {
-            // Your original GDI implementation
-            SetTextSize(hdc, fontSize);
-            SetTextColor(hdc, textColor);
-            int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
-            if (len > 0) {
-                wchar_t* wide_text = new wchar_t[len];
-                MultiByteToWideChar(CP_UTF8, 0, text, -1, wide_text, len);
-                TextOutW(hdc, x, y, wide_text, len - 1);
-                delete[] wide_text;
-            }
-        }
+    inline void RenderText(int x, int y, const char* text, COLORREF textColor, int fontSize) {
+        g_hwRenderer.RenderText(x, y, text, textColor, fontSize);
     }
 }

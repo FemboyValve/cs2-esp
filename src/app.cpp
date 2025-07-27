@@ -15,7 +15,7 @@ App* App::s_instance = nullptr;
 // Global hardware renderer instance
 render::HardwareRenderer render::g_hwRenderer;
 
-App::App() : m_finish(false), m_useHardwareAccel(true) {
+App::App() : m_finish(false) {
     s_instance = this;
 }
 
@@ -26,15 +26,6 @@ App::~App() {
 int App::Initialize(int argc, char* argv[]) {
     LOG_INIT();
     utils.update_console_title();
-
-    // Check command line arguments for hardware acceleration disable
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--no-hw-accel") == 0) {
-            m_useHardwareAccel = false;
-            CLOG_INFO("[render] Hardware acceleration disabled via command line");
-            break;
-        }
-    }
 
     if (!InitializeConfig()) {
         return -1;
@@ -79,7 +70,7 @@ int App::Run() {
 
     // Initialize overlay window
     OverlayWindow* window = OverlayWindow::GetInstance();
-    if (!window->Initialize(m_useHardwareAccel)) {
+    if (!window->Initialize()) {
         CLOG_WARN("[overlay] Failed to initialize overlay window");
         return -1;
     }
@@ -88,9 +79,9 @@ int App::Run() {
 
     // Show keybind information
 #ifndef _UC
-    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F6] enable/disable automatic updates\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[F10] toggle hardware acceleration\n\t[end] Unload esp.\n" << std::endl;
+    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F6] enable/disable automatic updates\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[end] Unload esp.\n" << std::endl;
 #else
-    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[F10] toggle hardware acceleration\n\t[end] Unload esp.\n" << std::endl;
+    std::cout << "\n[settings] In Game keybinds:\n\t[F4] enable/disable Box ESP\n\t[F5] enable/disable Team ESP\n\t[F7] enable/disable extra flags\n\t[F8] enable/disable skeleton esp\n\t[F9] enable/disable head tracker\n\t[end] Unload esp.\n" << std::endl;
 #endif
     std::cout << "[settings] Make sure you check the config for additional settings!" << std::endl;
 
@@ -203,16 +194,6 @@ void App::HandleKeyInput() {
         config::show_head_tracker = !config::show_head_tracker;
         config::save();
         Beep(700, 100);
-    }
-
-    // Toggle hardware acceleration
-    if (GetAsyncKeyState(VK_F10) & 0x8000) {
-        OverlayWindow* window = OverlayWindow::GetInstance();
-        if (window && window->IsValid()) {
-            window->ToggleHardwareAcceleration();
-            m_useHardwareAccel = window->IsHardwareAccelEnabled();
-        }
-        config::save();
     }
 }
 

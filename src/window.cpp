@@ -1,5 +1,5 @@
 #include "window.hpp"
-#include "classes/render.hpp"
+#include "classes/renderer.hpp"
 #include "hacks/reader.hpp"
 #include "hacks/hack.hpp"
 #include "utils/log.h"
@@ -8,8 +8,7 @@
 OverlayWindow* OverlayWindow::s_instance = nullptr;
 
 OverlayWindow::OverlayWindow() 
-    : m_hWnd(nullptr), m_hInstance(nullptr), m_useHardwareAccel(true),
-      m_hdcBuffer(nullptr), m_hbmBuffer(nullptr) {
+    : m_hWnd(nullptr), m_hInstance(nullptr) {
     ZeroMemory(&m_gameBounds, sizeof(RECT));
 }
 
@@ -31,9 +30,7 @@ void OverlayWindow::DestroyInstance() {
     }
 }
 
-bool OverlayWindow::Initialize(bool useHardwareAccel) {
-    m_useHardwareAccel = useHardwareAccel;
-    
+bool OverlayWindow::Initialize() {
     if (!_CreateWindow()) {
         CLOG_WARN("[overlay] Failed to create overlay window");
         return false;
@@ -93,60 +90,10 @@ void OverlayWindow::Cleanup() {
     // Clean up hardware renderer
     render::g_hwRenderer.Cleanup();
 
-    // Clean up GDI resources
-    bool cleanupSuccess = true;
-
-    if (m_hdcBuffer) {
-        if (!DeleteDC(m_hdcBuffer)) {
-            cleanupSuccess = false;
-        }
-        m_hdcBuffer = nullptr;
-    }
-
-    if (m_hbmBuffer) {
-        if (!DeleteObject(m_hbmBuffer)) {
-            cleanupSuccess = false;
-        }
-        m_hbmBuffer = nullptr;
-    }
-
-    if (!cleanupSuccess) {
-        CLOG_WARN("Failed to destroy overlay resources!");
-    }
-
     if (m_hWnd) {
         DestroyWindow(m_hWnd);
         m_hWnd = nullptr;
     }
-}
-
-void OverlayWindow::SetHardwareAcceleration(bool enable) {
-    if (m_useHardwareAccel == enable) return;
-    
-    m_useHardwareAccel = enable;
-    
-    if (enable) {
-        // Try to initialize hardware renderer
-        HRESULT hr = render::g_hwRenderer.Initialize(m_hWnd);
-        if (SUCCEEDED(hr)) {
-            CLOG_INFO("[render] Hardware acceleration enabled");
-            Beep(800, 100);
-        }
-        else {
-            m_useHardwareAccel = false;
-            CLOG_WARN("[render] Failed to initialize hardware acceleration, staying with GDI");
-            Beep(400, 200);
-        }
-    }
-    else {
-        render::g_hwRenderer.Cleanup();
-        CLOG_INFO("[render] Hardware acceleration disabled, using GDI");
-        Beep(600, 100);
-    }
-}
-
-void OverlayWindow::ToggleHardwareAcceleration() {
-    SetHardwareAcceleration(!m_useHardwareAccel);
 }
 
 void OverlayWindow::Show() {
@@ -181,24 +128,17 @@ LRESULT CALLBACK OverlayWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, 
     switch (message) {
     case WM_CREATE:
     {
-        // Initialize GDI resources for fallback
-        window->m_hdcBuffer = CreateCompatibleDC(NULL);
-        window->m_hbmBuffer = CreateCompatibleBitmap(GetDC(hWnd), window->m_gameBounds.right, window->m_gameBounds.bottom);
-        SelectObject(window->m_hdcBuffer, window->m_hbmBuffer);
-
         SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
         SetLayeredWindowAttributes(hWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
 
-        // Initialize hardware acceleration if enabled
-        if (window && window->m_useHardwareAccel) {
-            HRESULT hr = render::g_hwRenderer.Initialize(hWnd);
-            if (SUCCEEDED(hr)) {
-                std::cout << "[render] Hardware acceleration initialized successfully" << std::endl;
-            }
-            else {
-                std::cout << "[render] Hardware acceleration failed to initialize, using GDI fallback" << std::endl;
-                window->m_useHardwareAccel = false;
-            }
+        // Initialize hardware acceleration
+        HRESULT hr = render::g_hwRenderer.Initialize(hWnd);
+        if (SUCCEEDED(hr)) {
+            std::cout << "[render] Hardware acceleration initialized successfully" << std::endl;
+        }
+        else {
+            std::cout << "[render] Hardware acceleration failed to initialize" << std::endl;
+            return -1; // Fail window creation if hardware renderer fails
         }
 
         std::cout << "[overlay] Window created successfully" << std::endl;
@@ -222,9 +162,7 @@ LRESULT CALLBACK OverlayWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, 
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
 
-        bool useHardwareAccel = window && window->m_useHardwareAccel && render::g_hwRenderer.IsInitialized();
-
-        if (useHardwareAccel) {
+        if (render::g_hwRenderer.IsInitialized()) {
             // Use hardware accelerated rendering
             render::g_hwRenderer.BeginDraw();
 
@@ -234,21 +172,8 @@ LRESULT CALLBACK OverlayWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, 
 
             HRESULT hr = render::g_hwRenderer.EndDraw();
             if (FAILED(hr)) {
-                // Hardware rendering failed, fall back to GDI for this frame
-                std::cout << "[render] Hardware rendering failed, using GDI fallback" << std::endl;
-                useHardwareAccel = false;
+                std::cout << "[render] Hardware rendering failed" << std::endl;
             }
-        }
-
-        if (!useHardwareAccel) {
-            // Use GDI double buffering (original method)
-            FillRect(window->m_hdcBuffer, &ps.rcPaint, (HBRUSH)GetStockObject(WHITE_BRUSH));
-
-            if (GetForegroundWindow() == g_game.process->hwnd_) {
-                hack::loop(); // Your ESP rendering code
-            }
-
-            BitBlt(hdc, 0, 0, window->m_gameBounds.right, window->m_gameBounds.bottom, window->m_hdcBuffer, 0, 0, SRCCOPY);
         }
 
         EndPaint(hWnd, &ps);
@@ -258,16 +183,6 @@ LRESULT CALLBACK OverlayWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, 
     case WM_DESTROY:
         // Clean up hardware renderer
         render::g_hwRenderer.Cleanup();
-
-        // Clean up GDI resources
-        if (window->m_hdcBuffer) {
-            DeleteDC(window->m_hdcBuffer);
-            window->m_hdcBuffer = nullptr;
-        }
-        if (window->m_hbmBuffer) {
-            DeleteObject(window->m_hbmBuffer);
-            window->m_hbmBuffer = nullptr;
-        }
         PostQuitMessage(0);
         break;
     default:
