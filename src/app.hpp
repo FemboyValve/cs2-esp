@@ -1,13 +1,10 @@
 #pragma once
+
 #include <windows.h>
 #include <thread>
-#include <chrono>
-#include <iostream>
 
 class App {
 private:
-    HWND m_hWnd;
-    HINSTANCE m_hInstance;
     bool m_finish;
     std::thread m_readThread;
 
@@ -20,7 +17,6 @@ private:
 #ifndef _UC
     void CheckForUpdates();
 #endif
-    bool CreateOverlayWindow();
     void StartReadThread();
     void HandleKeyInput();
     void MessageLoop();
@@ -28,14 +24,8 @@ private:
     // Thread function
     void ReadThreadFunction();
 
-    // Window procedure - needs to be static to be used as callback
-    static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
-
-    // Store instance pointer for window procedure access
+    // Store instance pointer for access
     static App* s_instance;
-
-    // Make WndProc a friend so it can access private members
-    friend LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 public:
     App();

@@ -39,6 +39,7 @@ public:
 	CBones bones;
 	bool is_defusing;
 	bool is_spotted;
+	float m_flashAlpha;
 	int32_t money;
 	float flashAlpha;
 	std::string weapon;
@@ -57,9 +58,9 @@ public:
 	bool inGame;
 	Vector3 localOrigin;
 	bool isC4Planted;
-	int localTeam;
+	
 	CC4 c4;
-	std::vector<CPlayer> players = {};
+	std::vector<CPlayer> m_players = {};
 	void init();
 	void loop();
 	void close();
@@ -71,6 +72,11 @@ private:
 	uintptr_t localpCSPlayerPawn;
 	std::uint32_t localPlayerPawn;
 	uintptr_t localList_entry2;
+
+
+public: // variables from our player
+	float m_flashAlpha = 0.0f;
+	int localTeam;
 };
 
 inline CGame g_game;

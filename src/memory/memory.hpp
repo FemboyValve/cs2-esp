@@ -69,7 +69,7 @@ public:
 	void write(uintptr_t address, T value)
 	{
 		pMemory cMemory;
-		cMemory.pfnNtWriteVirtualMemory(handle_, (void*)address, &value, sizeof(T), 0);
+		NTSTATUS status = cMemory.pfnNtWriteVirtualMemory(handle_, (void*)address, &value, sizeof(T), nullptr);
 	}
 
 	template<class T>

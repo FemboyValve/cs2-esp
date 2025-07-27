@@ -1,11 +1,11 @@
 #include "app.hpp"
+#include "window.hpp"
 #include "classes/utils.h"
 #include "memory/memory.hpp"
 #include "classes/vector.hpp"
 #include "hacks/reader.hpp"
 #include "hacks/hack.hpp"
-#include "classes/globals.hpp"
-#include "classes/render.hpp"
+#include "classes/renderer.hpp"
 #include "classes/auto_updater.hpp"
 #include "utils/log.h"
 
@@ -15,10 +15,8 @@ App* App::s_instance = nullptr;
 // Global hardware renderer instance
 render::HardwareRenderer render::g_hwRenderer;
 
-App::App() : m_hWnd(nullptr), m_hInstance(nullptr), m_finish(false),
- m_useHardwareAccel(true) {
+App::App() : m_finish(false), m_useHardwareAccel(true) {
     s_instance = this;
-    ZeroMemory(&g::gameBounds, sizeof(RECT));
 }
 
 App::~App() {
@@ -79,7 +77,10 @@ int App::Run() {
         ShowWindow(g_game.process->hwnd_, TRUE);
     }
 
-    if (!CreateOverlayWindow()) {
+    // Initialize overlay window
+    OverlayWindow* window = OverlayWindow::GetInstance();
+    if (!window->Initialize(m_useHardwareAccel)) {
+        CLOG_WARN("[overlay] Failed to initialize overlay window");
         return -1;
     }
 
@@ -107,34 +108,9 @@ void App::Shutdown() {
     Beep(700, 100);
     std::cout << "[overlay] Destroying overlay window." << std::endl;
 
-    // Clean up hardware renderer
-    render::g_hwRenderer.Cleanup();
+    // Cleanup overlay window
+    OverlayWindow::DestroyInstance();
 
-    // Clean up GDI resources that aren't handled by WM_DESTROY
-    bool cleanupSuccess = true;
-
-    if (g::hdcBuffer) {
-        if (!DeleteDC(g::hdcBuffer)) {
-            cleanupSuccess = false;
-        }
-        g::hdcBuffer = nullptr;
-    }
-
-    if (g::hbmBuffer) {
-        if (!DeleteObject(g::hbmBuffer)) {
-            cleanupSuccess = false;
-        }
-        g::hbmBuffer = nullptr;
-    }
-
-    if (!cleanupSuccess) {
-        CLOG_WARN("Failed to destroy overlay resources!");
-    }
-
-    if (m_hWnd) {
-        DestroyWindow(m_hWnd);
-        m_hWnd = nullptr;
-    }
     g_game.close();
     CLOG_INFO("Exiting App");
     LOG_DESTROY();
@@ -173,52 +149,6 @@ bool App::InitializeOffsets() {
         CLOG_INFO("[Offsets] Error reading offsets file, resetting to the default state");
         return true; // Continue with defaults
     }
-}
-
-bool App::CreateOverlayWindow() {
-    std::cout << "[overlay] Creating window overlay..." << std::endl;
-
-    WNDCLASSEXA wc = { 0 };
-    wc.cbSize = sizeof(WNDCLASSEXA);
-    wc.lpfnWndProc = WndProc;
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.hbrBackground = WHITE_BRUSH;
-    wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtrA(g_game.process->hwnd_, GWLP_HINSTANCE));
-    wc.lpszMenuName = NULL;
-    wc.lpszClassName = " ";
-
-    if (!RegisterClassExA(&wc)) {
-        std::cout << "[overlay] Failed to register window class" << std::endl;
-        return false;
-    }
-
-    GetClientRect(g_game.process->hwnd_, &g::gameBounds);
-
-    m_hInstance = NULL; // Like original
-    m_hWnd = CreateWindowExA(
-        WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
-        " ",
-        "cs2-external-esp",
-        WS_POPUP,
-        g::gameBounds.left,
-        g::gameBounds.top,
-        g::gameBounds.right - g::gameBounds.left,
-        g::gameBounds.bottom + g::gameBounds.left,
-        NULL,
-        NULL,
-        m_hInstance,
-        NULL
-    );
-
-    if (m_hWnd == NULL) {
-        std::cout << "[overlay] Failed to create overlay window" << std::endl;
-        return false;
-    }
-
-    SetWindowPos(m_hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    ShowWindow(m_hWnd, TRUE);
-
-    return true;
 }
 
 void App::StartReadThread() {
@@ -277,24 +207,10 @@ void App::HandleKeyInput() {
 
     // Toggle hardware acceleration
     if (GetAsyncKeyState(VK_F10) & 0x8000) {
-        m_useHardwareAccel = !m_useHardwareAccel;
-        if (m_useHardwareAccel) {
-            // Try to initialize hardware renderer
-            HRESULT hr = render::g_hwRenderer.Initialize(m_hWnd);
-            if (SUCCEEDED(hr)) {
-                CLOG_INFO("[render] Hardware acceleration enabled");
-                Beep(800, 100);
-            }
-            else {
-                m_useHardwareAccel = false;
-                CLOG_WARN("[render] Failed to initialize hardware acceleration, staying with GDI");
-                Beep(400, 200);
-            }
-        }
-        else {
-            render::g_hwRenderer.Cleanup();
-            CLOG_INFO("[render] Hardware acceleration disabled, using GDI");
-            Beep(600, 100);
+        OverlayWindow* window = OverlayWindow::GetInstance();
+        if (window && window->IsValid()) {
+            window->ToggleHardwareAcceleration();
+            m_useHardwareAccel = window->IsHardwareAccelEnabled();
         }
         config::save();
     }
@@ -302,6 +218,9 @@ void App::HandleKeyInput() {
 
 void App::MessageLoop() {
     MSG msg;
+    OverlayWindow* window = OverlayWindow::GetInstance();
+    HWND hwnd = window ? window->GetHWND() : nullptr;
+    
     while (GetMessage(&msg, NULL, 0, 0) && !m_finish) {
         HandleKeyInput();
 
@@ -310,105 +229,4 @@ void App::MessageLoop() {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-}
-
-LRESULT CALLBACK App::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    App* app = App::s_instance;
-
-    switch (message) {
-    case WM_CREATE:
-    {
-        // Initialize GDI resources for fallback
-        g::hdcBuffer = CreateCompatibleDC(NULL);
-        g::hbmBuffer = CreateCompatibleBitmap(GetDC(hWnd), g::gameBounds.right, g::gameBounds.bottom);
-        SelectObject(g::hdcBuffer, g::hbmBuffer);
-
-        SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
-        SetLayeredWindowAttributes(hWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
-
-        // Initialize hardware acceleration if enabled
-        if (app && app->m_useHardwareAccel) {
-            HRESULT hr = render::g_hwRenderer.Initialize(hWnd);
-            if (SUCCEEDED(hr)) {
-                std::cout << "[render] Hardware acceleration initialized successfully" << std::endl;
-            }
-            else {
-                std::cout << "[render] Hardware acceleration failed to initialize, using GDI fallback" << std::endl;
-                app->m_useHardwareAccel = false;
-            }
-        }
-
-        std::cout << "[overlay] Window created successfully" << std::endl;
-        Beep(500, 100);
-        break;
-    }
-    case WM_SIZE:
-    {
-        // Handle window resize for hardware renderer
-        if (render::g_hwRenderer.IsInitialized()) {
-            UINT width = LOWORD(lParam);
-            UINT height = HIWORD(lParam);
-            render::g_hwRenderer.Resize(width, height);
-        }
-        break;
-    }
-    case WM_ERASEBKGND: // We handle this message to avoid flickering
-        return TRUE;
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
-
-        bool useHardwareAccel = app && app->m_useHardwareAccel && render::g_hwRenderer.IsInitialized();
-
-        if (useHardwareAccel) {
-            // Use hardware accelerated rendering
-            render::g_hwRenderer.BeginDraw();
-
-            if (GetForegroundWindow() == g_game.process->hwnd_) {
-                hack::loop(); // Your ESP rendering code
-            }
-
-            HRESULT hr = render::g_hwRenderer.EndDraw();
-            if (FAILED(hr)) {
-                // Hardware rendering failed, fall back to GDI for this frame
-                std::cout << "[render] Hardware rendering failed, using GDI fallback" << std::endl;
-                useHardwareAccel = false;
-            }
-        }
-
-        if (!useHardwareAccel) {
-            // Use GDI double buffering (original method)
-            FillRect(g::hdcBuffer, &ps.rcPaint, (HBRUSH)GetStockObject(WHITE_BRUSH));
-
-            if (GetForegroundWindow() == g_game.process->hwnd_) {
-                hack::loop(); // Your ESP rendering code
-            }
-
-            BitBlt(hdc, 0, 0, g::gameBounds.right, g::gameBounds.bottom, g::hdcBuffer, 0, 0, SRCCOPY);
-        }
-
-        EndPaint(hWnd, &ps);
-        InvalidateRect(hWnd, NULL, TRUE);
-        break;
-    }
-    case WM_DESTROY:
-        // Clean up hardware renderer
-        render::g_hwRenderer.Cleanup();
-
-        // Clean up GDI resources
-        if (g::hdcBuffer) {
-            DeleteDC(g::hdcBuffer);
-            g::hdcBuffer = nullptr;
-        }
-        if (g::hbmBuffer) {
-            DeleteObject(g::hbmBuffer);
-            g::hbmBuffer = nullptr;
-        }
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hWnd, message, wParam, lParam);
-    }
-    return 0;
 }

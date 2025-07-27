@@ -1,5 +1,9 @@
 #pragma once
 
+#include <unordered_map>
+#include <vector>
+#include <mutex>
+
 using Microsoft::WRL::ComPtr;
 
 namespace render
@@ -14,6 +18,12 @@ namespace render
         // Brushes for different colors
         ComPtr<ID2D1SolidColorBrush> m_pBrush;
 
+        // Cache for text formats to improve performance
+        std::unordered_map<int, ComPtr<IDWriteTextFormat>> m_textFormatCache;
+        
+        // Thread safety
+        std::mutex m_renderMutex;
+
         bool m_initialized;
         HWND m_hWnd;
 
@@ -25,6 +35,8 @@ namespace render
         }
 
         HRESULT Initialize(HWND hWnd) {
+            std::lock_guard<std::mutex> lock(m_renderMutex);
+            
             HRESULT hr = S_OK;
             m_hWnd = hWnd;
 
@@ -55,7 +67,7 @@ namespace render
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwndRtProps = D2D1::HwndRenderTargetProperties(
                 hWnd,
                 size,
-                D2D1_PRESENT_OPTIONS_NONE
+                D2D1_PRESENT_OPTIONS_IMMEDIATELY
             );
 
             hr = m_pD2DFactory->CreateHwndRenderTarget(
@@ -93,6 +105,8 @@ namespace render
         }
 
         void Cleanup() {
+            
+            m_textFormatCache.clear();
             m_pBrush.Reset();
             m_pTextFormat.Reset();
             m_pWriteFactory.Reset();
@@ -101,7 +115,9 @@ namespace render
             m_initialized = false;
         }
 
-        bool IsInitialized() const { return m_initialized; }
+        bool IsInitialized() const { 
+            return m_initialized; 
+        }
 
         void BeginDraw() {
             if (m_pRenderTarget) {
@@ -178,16 +194,76 @@ namespace render
         }
 
         void RenderText(int x, int y, const char* text, COLORREF textColor, int textSize) {
-            if (!m_pRenderTarget || !text) return;
+            std::lock_guard<std::mutex> lock(m_renderMutex);
+            
+            if (!m_pRenderTarget || !text || !m_pWriteFactory) return;
+            
+            // Validate input parameters
+            if (strlen(text) == 0 || textSize <= 0 || textSize > 200) return;
 
-            // Convert char* to wstring
-            int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
-            if (len <= 0) return;
+            try {
+                // Convert char* to wstring with better error handling
+                int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
+                if (len <= 1) return; // Invalid conversion or empty string
 
-            std::wstring wideText(len - 1, L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, text, -1, &wideText[0], len);
+                std::vector<wchar_t> wideText(len);
+                int result = MultiByteToWideChar(CP_UTF8, 0, text, -1, wideText.data(), len);
+                if (result == 0) return; // Conversion failed
 
-            // Create text format with specified size
+                // Get or create cached text format
+                ComPtr<IDWriteTextFormat> textFormat = GetOrCreateTextFormat(textSize);
+                if (!textFormat) {
+                    // Fallback to simple rendering if format creation fails
+                    RenderTextSimple(x, y, wideText.data(), len - 1, textColor, textSize);
+                    return;
+                }
+
+                // Calculate reasonable dimensions based on text size
+                constexpr float maxWidth = 2000.0f; // Reasonable max width
+                float maxHeight = static_cast<float>(textSize * 2); // Height based on font size
+
+                // Create text layout with proper dimensions
+                ComPtr<IDWriteTextLayout> textLayout;
+                HRESULT hr = m_pWriteFactory->CreateTextLayout(
+                    wideText.data(),
+                    static_cast<UINT32>(len - 1), // Exclude null terminator
+                    textFormat.Get(),
+                    maxWidth,
+                    maxHeight,
+                    &textLayout);
+
+                if (FAILED(hr)) {
+                    // Fallback to simple DrawText if layout creation fails
+                    RenderTextFallback(x, y, wideText.data(), len - 1, textColor, textSize, textFormat.Get());
+                    return;
+                }
+
+                // Get actual text metrics for better positioning
+                DWRITE_TEXT_METRICS textMetrics;
+                hr = textLayout->GetMetrics(&textMetrics);
+                if (FAILED(hr)) {
+                    RenderTextFallback(x, y, wideText.data(), len - 1, textColor, textSize, textFormat.Get());
+                    return;
+                }
+
+                // Render with outline for better visibility
+                RenderTextWithOutline(x, y, textLayout.Get(), textColor);
+
+            } catch (...) {
+                // Catch any exceptions to prevent crashes
+                OutputDebugStringA("RenderText: Exception caught\n");
+                return;
+            }
+        }
+
+    private:
+        ComPtr<IDWriteTextFormat> GetOrCreateTextFormat(int textSize) {
+            auto it = m_textFormatCache.find(textSize);
+            if (it != m_textFormatCache.end()) {
+                return it->second;
+            }
+
+            // Create new text format
             ComPtr<IDWriteTextFormat> textFormat;
             HRESULT hr = m_pWriteFactory->CreateTextFormat(
                 L"Arial",
@@ -199,105 +275,117 @@ namespace render
                 L"",
                 &textFormat);
 
-            if (FAILED(hr)) return;
-
-            // Force single line rendering with multiple settings
-            textFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-            textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-
-            // Create text layout for better control
-            ComPtr<IDWriteTextLayout> textLayout;
-            hr = m_pWriteFactory->CreateTextLayout(
-                wideText.c_str(),
-                static_cast<UINT32>(wideText.length()),
-                textFormat.Get(),
-                10000.0f,  // Very wide max width to prevent wrapping
-                static_cast<float>(textSize + 10),  // Height
-                &textLayout);
-
-            if (FAILED(hr)) {
-                // Fallback to original method if layout creation fails
+            if (SUCCEEDED(hr)) {
+                // Configure text format for single line rendering
                 textFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 
-                // Simple text outline for readability
-                // Draw black outline
-                m_pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
-                for (int ox = -1; ox <= 1; ox++) {
-                    for (int oy = -1; oy <= 1; oy++) {
-                        if (ox == 0 && oy == 0) continue;
+                // Cache it
+                m_textFormatCache[textSize] = textFormat;
+                return textFormat;
+            }
 
-                        D2D1_RECT_F layoutRect = D2D1::RectF(
-                            static_cast<float>(x + ox),
-                            static_cast<float>(y + oy),
-                            static_cast<float>(x + ox + 10000),  // Much wider
-                            static_cast<float>(y + oy + textSize + 10)
-                        );
+            return nullptr;
+        }
 
-                        m_pRenderTarget->DrawText(
-                            wideText.c_str(),
-                            static_cast<UINT32>(wideText.length()),
-                            textFormat.Get(),
-                            layoutRect,
-                            m_pBrush.Get()
-                        );
-                    }
-                }
+        void RenderTextSimple(int x, int y, const wchar_t* text, UINT32 textLength, COLORREF textColor, int textSize) {
+            if (!m_pRenderTarget || !text) return;
 
-                // Draw main text
-                SetBrushColor(textColor);
-                D2D1_RECT_F layoutRect = D2D1::RectF(
-                    static_cast<float>(x),
-                    static_cast<float>(y),
-                    static_cast<float>(x + 10000),  // Much wider
-                    static_cast<float>(y + textSize + 10)
-                );
+            // Very simple fallback - just render text without outline
+            SetBrushColor(textColor);
+            
+            D2D1_RECT_F layoutRect = D2D1::RectF(
+                static_cast<float>(x),
+                static_cast<float>(y),
+                static_cast<float>(x + 1000),
+                static_cast<float>(y + textSize + 10)
+            );
 
+            if (m_pTextFormat) {
                 m_pRenderTarget->DrawText(
-                    wideText.c_str(),
-                    static_cast<UINT32>(wideText.length()),
-                    textFormat.Get(),
+                    text,
+                    textLength,
+                    m_pTextFormat.Get(),
                     layoutRect,
                     m_pBrush.Get()
                 );
-                return;
             }
+        }
 
-            // Use text layout for better control
-            // Draw black outline
-            m_pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
-            for (int ox = -1; ox <= 1; ox++) {
-                for (int oy = -1; oy <= 1; oy++) {
-                    if (ox == 0 && oy == 0) continue;
+        void RenderTextFallback(int x, int y, const wchar_t* text, UINT32 textLength, 
+                               COLORREF textColor, int textSize, IDWriteTextFormat* textFormat) {
+            if (!m_pRenderTarget || !text || !textFormat) return;
 
-                    D2D1_POINT_2F origin = D2D1::Point2F(
-                        static_cast<float>(x + ox),
-                        static_cast<float>(y + oy)
-                    );
-
-                    m_pRenderTarget->DrawTextLayout(
-                        origin,
-                        textLayout.Get(),
-                        m_pBrush.Get()
-                    );
-                }
-            }
-
-            // Draw main text
+            // Simple fallback without outline
             SetBrushColor(textColor);
-            D2D1_POINT_2F origin = D2D1::Point2F(
+            
+            D2D1_RECT_F layoutRect = D2D1::RectF(
                 static_cast<float>(x),
-                static_cast<float>(y)
+                static_cast<float>(y),
+                static_cast<float>(x + 1000), // Reasonable width
+                static_cast<float>(y + textSize + 10)
             );
 
-            m_pRenderTarget->DrawTextLayout(
-                origin,
-                textLayout.Get(),
+            m_pRenderTarget->DrawText(
+                text,
+                textLength,
+                textFormat,
+                layoutRect,
                 m_pBrush.Get()
             );
         }
 
-    private:
+        void RenderTextWithOutline(int x, int y, IDWriteTextLayout* textLayout, COLORREF textColor) {
+            if (!m_pRenderTarget || !textLayout || !m_pBrush) return;
+
+            try {
+                // Draw black outline (simplified - just 4 directions to reduce overhead)
+                m_pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.8f)); // Semi-transparent black
+                
+                const int offsets[][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                
+                for (int i = 0; i < 4; i++) {
+                    D2D1_POINT_2F origin = D2D1::Point2F(
+                        static_cast<float>(x + offsets[i][0]),
+                        static_cast<float>(y + offsets[i][1])
+                    );
+
+                    m_pRenderTarget->DrawTextLayout(
+                        origin,
+                        textLayout,
+                        m_pBrush.Get()
+                    );
+                }
+
+                // Draw main text
+                SetBrushColor(textColor);
+                D2D1_POINT_2F origin = D2D1::Point2F(
+                    static_cast<float>(x),
+                    static_cast<float>(y)
+                );
+
+                m_pRenderTarget->DrawTextLayout(
+                    origin,
+                    textLayout,
+                    m_pBrush.Get()
+                );
+            } catch (...) {
+                // If outline fails, just draw the main text
+                SetBrushColor(textColor);
+                D2D1_POINT_2F origin = D2D1::Point2F(
+                    static_cast<float>(x),
+                    static_cast<float>(y)
+                );
+
+                m_pRenderTarget->DrawTextLayout(
+                    origin,
+                    textLayout,
+                    m_pBrush.Get()
+                );
+            }
+        }
+
         void SetBrushColor(COLORREF color) {
             if (m_pBrush) {
                 float r = GetRValue(color) / 255.0f;
@@ -422,19 +510,21 @@ namespace render
         }
     }
 
-    inline void RenderText(HDC hdc, int x, int y, const char* text, COLORREF textColor, int textSize) {
+    inline void RenderText(HDC hdc, int x, int y, const char* text, COLORREF textColor, int fontSize) {
         if (g_hwRenderer.IsInitialized()) {
-            g_hwRenderer.RenderText(x, y, text, textColor, textSize);
+            g_hwRenderer.RenderText(x, y, text, textColor, fontSize);
         }
         else {
             // Your original GDI implementation
-            SetTextSize(hdc, textSize);
+            SetTextSize(hdc, fontSize);
             SetTextColor(hdc, textColor);
             int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
-            wchar_t* wide_text = new wchar_t[len];
-            MultiByteToWideChar(CP_UTF8, 0, text, -1, wide_text, len);
-            TextOutW(hdc, x, y, wide_text, len - 1);
-            delete[] wide_text;
+            if (len > 0) {
+                wchar_t* wide_text = new wchar_t[len];
+                MultiByteToWideChar(CP_UTF8, 0, text, -1, wide_text, len);
+                TextOutW(hdc, x, y, wide_text, len - 1);
+                delete[] wide_text;
+            }
         }
     }
 }

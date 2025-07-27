@@ -2,8 +2,10 @@
 #include <thread>
 #include <map>
 #include <cmath>
-#include "../classes/auto_updater.hpp"
-#include "../classes/config.hpp"
+#include "classes/auto_updater.hpp"
+#include "classes/config.hpp"
+#include "classes/render.hpp"
+#include "window.hpp"
 
 static const std::unordered_map<std::string, int> boneMap = {
 	{"head", 6},
@@ -117,6 +119,7 @@ void CGame::loop() {
 	const bool showHeadTracker = config::show_head_tracker;
 	const bool showExtraFlags = config::show_extra_flags;
 	const int renderDistance = config::render_distance;
+	const bool NoFlashBool = false; // this doesnt work currently we can read but not write
 
 	int playerIndex = 0;
 	CPlayer player;
@@ -194,7 +197,6 @@ void CGame::loop() {
 		}
 
 		if (showExtraFlags) {
-			// Batch read extra flag data to minimize memory reads
 			player.is_defusing = process->read<bool>(player.pCSPlayerPawn + updater::offsets::m_bIsDefusing);
 			player.flashAlpha = process->read<float>(player.pCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha);
 
@@ -220,11 +222,17 @@ void CGame::loop() {
 		list.push_back(std::move(player));
 	}
 
+	m_flashAlpha = process->read<float>(localpCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha);
+
+	if (NoFlashBool)
+	{
+		process->write<float>(localpCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha, 0.0f);
+	}
+
 	// Use move semantics to avoid copy
-	players = std::move(list);
+	m_players = std::move(list);
 }
 
-// Optimized bone reading functions
 void CPlayer::ReadHead() {
 	const uintptr_t boneAddress = boneArray + HEAD_BONE_INDEX * BONE_SIZE;
 	Vector3 bonePosition = g_game.process->read<Vector3>(boneAddress);
@@ -245,38 +253,30 @@ void CPlayer::ReadBones() {
 	}
 }
 
-Vector3 CGame::world_to_screen(Vector3* v) {
-	// Cache input values to avoid repeated dereferencing
-	const float vx = v->x;
-	const float vy = v->y;
-	const float vz = v->z;
+Vector3 CGame::world_to_screen(Vector3* v)
+{
+	__m128 vec = _mm_set_ps(1.0f, v->z, v->y, v->x);  // [w=1, z, y, x]
 
-	// Pre-load matrix rows for better cache performance
-	const float* const row0 = view_matrix[0];
-	const float* const row1 = view_matrix[1];
-	const float* const row3 = view_matrix[3];
+	__m128 row0 = _mm_loadu_ps(view_matrix[0]);
+	__m128 row1 = _mm_loadu_ps(view_matrix[1]);
+	__m128 row3 = _mm_loadu_ps(view_matrix[3]);
 
-	// Compute transformed coordinates with fewer memory accesses
-	const float x = row0[0] * vx + row0[1] * vy + row0[2] * vz + row0[3];
-	const float y = row1[0] * vx + row1[1] * vy + row1[2] * vz + row1[3];
-	const float w = row3[0] * vx + row3[1] * vy + row3[2] * vz + row3[3];
+	float x = _mm_cvtss_f32(_mm_dp_ps(row0, vec, 0xF1));
+	float y = _mm_cvtss_f32(_mm_dp_ps(row1, vec, 0xF1));
+	float w = _mm_cvtss_f32(_mm_dp_ps(row3, vec, 0xF1));
 
-	// Early return for invalid w with const comparison
 	constexpr float MIN_W = 0.001f;
 	if (w < MIN_W) return { 0, 0, -1 };
 
-	// Perspective divide with single division
-	const float inv_w = 1.0f / w;
-	const float norm_x = x * inv_w;
-	const float norm_y = y * inv_w;
+	float inv_w = 1.0f / w;
+	float norm_x = x * inv_w;
+	float norm_y = y * inv_w;
 
-	// Pre-calculate constants for screen conversion
-	const float half_width = game_bounds.right * 0.5f;
-	const float half_height = game_bounds.bottom * 0.5f;
+	float half_width = game_bounds.right * 0.5f;
+	float half_height = game_bounds.bottom * 0.5f;
 
-	// Convert to screen coordinates with optimized calculations
-	const float screen_x = half_width + norm_x * half_width;
-	const float screen_y = half_height - norm_y * half_height;
+	float screen_x = half_width + norm_x * half_width;
+	float screen_y = half_height - norm_y * half_height;
 
 	return { screen_x, screen_y, w };
 }
