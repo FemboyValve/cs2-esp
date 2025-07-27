@@ -30,75 +30,7 @@ namespace render
             Cleanup();
         }
 
-        HRESULT Initialize(HWND hWnd) {
-            std::lock_guard<std::mutex> lock(m_renderMutex);
-            
-            HRESULT hr = S_OK;
-            m_hWnd = hWnd;
-
-            // Create D2D1 Factory
-            hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, IID_PPV_ARGS(&m_pD2DFactory));
-            if (FAILED(hr)) return hr;
-
-            // Create DWrite Factory
-            hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(m_pWriteFactory),
-                reinterpret_cast<IUnknown**>(m_pWriteFactory.GetAddressOf()));
-            if (FAILED(hr)) return hr;
-
-            // Create render target
-            RECT rc;
-            GetClientRect(hWnd, &rc);
-
-            D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-
-            // Use IGNORE alpha mode for overlay transparency compatibility
-            D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
-                D2D1_RENDER_TARGET_TYPE_HARDWARE,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-                0, 0, // Default DPI
-                D2D1_RENDER_TARGET_USAGE_NONE,
-                D2D1_FEATURE_LEVEL_DEFAULT
-            );
-
-            D2D1_HWND_RENDER_TARGET_PROPERTIES hwndRtProps = D2D1::HwndRenderTargetProperties(
-                hWnd,
-                size,
-                D2D1_PRESENT_OPTIONS_IMMEDIATELY
-            );
-
-            hr = m_pD2DFactory->CreateHwndRenderTarget(
-                rtProps,
-                hwndRtProps,
-                &m_pRenderTarget);
-
-            if (FAILED(hr)) return hr;
-
-            // Create default brush
-            hr = m_pRenderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(D2D1::ColorF::White),
-                &m_pBrush);
-
-            if (FAILED(hr)) return hr;
-
-            // Create default text format
-            hr = m_pWriteFactory->CreateTextFormat(
-                L"Arial",
-                nullptr,
-                DWRITE_FONT_WEIGHT_BOLD,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                12.0f,
-                L"",
-                &m_pTextFormat);
-
-            if (FAILED(hr)) return hr;
-
-            // Set single line rendering
-            m_pTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-            m_initialized = true;
-            return hr;
-        }
+        HRESULT Initialize(HWND hWnd);
 
         void Cleanup() {
             std::lock_guard<std::mutex> lock(m_renderMutex);
@@ -190,198 +122,17 @@ namespace render
             m_pRenderTarget->FillRectangle(rect, m_pBrush.Get());
         }
 
-        void RenderText(int x, int y, const char* text, COLORREF textColor, int textSize) {
-            std::lock_guard<std::mutex> lock(m_renderMutex);
-            
-            if (!m_pRenderTarget || !text || !m_pWriteFactory) return;
-            
-            // Validate input parameters
-            if (strlen(text) == 0 || textSize <= 0 || textSize > 200) return;
-
-            try {
-                // Convert char* to wstring with better error handling
-                int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
-                if (len <= 1) return; // Invalid conversion or empty string
-
-                std::vector<wchar_t> wideText(len);
-                int result = MultiByteToWideChar(CP_UTF8, 0, text, -1, wideText.data(), len);
-                if (result == 0) return; // Conversion failed
-
-                // Get or create cached text format
-                ComPtr<IDWriteTextFormat> textFormat = GetOrCreateTextFormat(textSize);
-                if (!textFormat) {
-                    // Fallback to simple rendering if format creation fails
-                    RenderTextSimple(x, y, wideText.data(), len - 1, textColor, textSize);
-                    return;
-                }
-
-                // Calculate reasonable dimensions based on text size
-                constexpr float maxWidth = 2000.0f; // Reasonable max width
-                float maxHeight = static_cast<float>(textSize * 2); // Height based on font size
-
-                // Create text layout with proper dimensions
-                ComPtr<IDWriteTextLayout> textLayout;
-                HRESULT hr = m_pWriteFactory->CreateTextLayout(
-                    wideText.data(),
-                    static_cast<UINT32>(len - 1), // Exclude null terminator
-                    textFormat.Get(),
-                    maxWidth,
-                    maxHeight,
-                    &textLayout);
-
-                if (FAILED(hr)) {
-                    // Fallback to simple DrawText if layout creation fails
-                    RenderTextFallback(x, y, wideText.data(), len - 1, textColor, textSize, textFormat.Get());
-                    return;
-                }
-
-                // Get actual text metrics for better positioning
-                DWRITE_TEXT_METRICS textMetrics;
-                hr = textLayout->GetMetrics(&textMetrics);
-                if (FAILED(hr)) {
-                    RenderTextFallback(x, y, wideText.data(), len - 1, textColor, textSize, textFormat.Get());
-                    return;
-                }
-
-                // Render with outline for better visibility
-                RenderTextWithOutline(x, y, textLayout.Get(), textColor);
-
-            } catch (...) {
-                // Catch any exceptions to prevent crashes
-                OutputDebugStringA("RenderText: Exception caught\n");
-                return;
-            }
-        }
+        void RenderText(int x, int y, const char* text, COLORREF textColor, int textSize);
 
     private:
-        ComPtr<IDWriteTextFormat> GetOrCreateTextFormat(int textSize) {
-            auto it = m_textFormatCache.find(textSize);
-            if (it != m_textFormatCache.end()) {
-                return it->second;
-            }
+        ComPtr<IDWriteTextFormat> GetOrCreateTextFormat(int textSize);
 
-            // Create new text format
-            ComPtr<IDWriteTextFormat> textFormat;
-            HRESULT hr = m_pWriteFactory->CreateTextFormat(
-                L"Arial",
-                nullptr,
-                DWRITE_FONT_WEIGHT_BOLD,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                static_cast<float>(textSize),
-                L"",
-                &textFormat);
+        void RenderTextSimple(int x, int y, const wchar_t* text, UINT32 textLength, COLORREF textColor, int textSize);
 
-            if (SUCCEEDED(hr)) {
-                // Configure text format for single line rendering
-                textFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-                textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-                textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        void RenderTextFallback(int x, int y, const wchar_t* text, UINT32 textLength,
+            COLORREF textColor, int textSize, IDWriteTextFormat* textFormat);
 
-                // Cache it
-                m_textFormatCache[textSize] = textFormat;
-                return textFormat;
-            }
-
-            return nullptr;
-        }
-
-        void RenderTextSimple(int x, int y, const wchar_t* text, UINT32 textLength, COLORREF textColor, int textSize) {
-            if (!m_pRenderTarget || !text) return;
-
-            // Very simple fallback - just render text without outline
-            SetBrushColor(textColor);
-            
-            D2D1_RECT_F layoutRect = D2D1::RectF(
-                static_cast<float>(x),
-                static_cast<float>(y),
-                static_cast<float>(x + 1000),
-                static_cast<float>(y + textSize + 10)
-            );
-
-            if (m_pTextFormat) {
-                m_pRenderTarget->DrawText(
-                    text,
-                    textLength,
-                    m_pTextFormat.Get(),
-                    layoutRect,
-                    m_pBrush.Get()
-                );
-            }
-        }
-
-        void RenderTextFallback(int x, int y, const wchar_t* text, UINT32 textLength, 
-                               COLORREF textColor, int textSize, IDWriteTextFormat* textFormat) {
-            if (!m_pRenderTarget || !text || !textFormat) return;
-
-            // Simple fallback without outline
-            SetBrushColor(textColor);
-            
-            D2D1_RECT_F layoutRect = D2D1::RectF(
-                static_cast<float>(x),
-                static_cast<float>(y),
-                static_cast<float>(x + 1000), // Reasonable width
-                static_cast<float>(y + textSize + 10)
-            );
-
-            m_pRenderTarget->DrawText(
-                text,
-                textLength,
-                textFormat,
-                layoutRect,
-                m_pBrush.Get()
-            );
-        }
-
-        void RenderTextWithOutline(int x, int y, IDWriteTextLayout* textLayout, COLORREF textColor) {
-            if (!m_pRenderTarget || !textLayout || !m_pBrush) return;
-
-            try {
-                // Draw black outline (simplified - just 4 directions to reduce overhead)
-                m_pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.8f)); // Semi-transparent black
-                
-                const int offsets[][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-                
-                for (int i = 0; i < 4; i++) {
-                    D2D1_POINT_2F origin = D2D1::Point2F(
-                        static_cast<float>(x + offsets[i][0]),
-                        static_cast<float>(y + offsets[i][1])
-                    );
-
-                    m_pRenderTarget->DrawTextLayout(
-                        origin,
-                        textLayout,
-                        m_pBrush.Get()
-                    );
-                }
-
-                // Draw main text
-                SetBrushColor(textColor);
-                D2D1_POINT_2F origin = D2D1::Point2F(
-                    static_cast<float>(x),
-                    static_cast<float>(y)
-                );
-
-                m_pRenderTarget->DrawTextLayout(
-                    origin,
-                    textLayout,
-                    m_pBrush.Get()
-                );
-            } catch (...) {
-                // If outline fails, just draw the main text
-                SetBrushColor(textColor);
-                D2D1_POINT_2F origin = D2D1::Point2F(
-                    static_cast<float>(x),
-                    static_cast<float>(y)
-                );
-
-                m_pRenderTarget->DrawTextLayout(
-                    origin,
-                    textLayout,
-                    m_pBrush.Get()
-                );
-            }
-        }
+        void RenderTextWithOutline(int x, int y, IDWriteTextLayout* textLayout, COLORREF textColor);
 
         void SetBrushColor(COLORREF color) {
             if (m_pBrush) {
@@ -392,49 +143,13 @@ namespace render
             }
         }
 
-        HRESULT CreateDeviceResources() {
-            if (m_pRenderTarget) {
-                m_pRenderTarget.Reset();
-                m_pBrush.Reset();
-            }
-
-            RECT rc;
-            GetClientRect(m_hWnd, &rc);
-            D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-
-            D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
-                D2D1_RENDER_TARGET_TYPE_HARDWARE,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-                0, 0,
-                D2D1_RENDER_TARGET_USAGE_NONE,
-                D2D1_FEATURE_LEVEL_DEFAULT
-            );
-
-            D2D1_HWND_RENDER_TARGET_PROPERTIES hwndRtProps = D2D1::HwndRenderTargetProperties(
-                m_hWnd,
-                size,
-                D2D1_PRESENT_OPTIONS_NONE
-            );
-
-            HRESULT hr = m_pD2DFactory->CreateHwndRenderTarget(
-                rtProps,
-                hwndRtProps,
-                &m_pRenderTarget);
-
-            if (SUCCEEDED(hr)) {
-                hr = m_pRenderTarget->CreateSolidColorBrush(
-                    D2D1::ColorF(D2D1::ColorF::White),
-                    &m_pBrush);
-            }
-
-            return hr;
-        }
+        HRESULT CreateDeviceResources();
     };
 
     // Global hardware renderer instance
     extern HardwareRenderer g_hwRenderer;
 
-    // Main rendering functions - now only use hardware acceleration
+    // Main rendering functions
     inline void DrawLine(int x1, int y1, int x2, int y2, COLORREF color) {
         g_hwRenderer.DrawLine(x1, y1, x2, y2, color);
     }
