@@ -1,4 +1,5 @@
 #include "auto_updater.hpp"
+#include "offsets.hpp"
 
 namespace updater {
 #ifndef _UC
@@ -198,6 +199,11 @@ namespace updater {
 			offsets::dwBuildNumber = data["dwBuildNumber"];
 		if (data["dwPlantedC4"].is_number())
 			offsets::dwPlantedC4 = data["dwPlantedC4"];
+
+		if (data["m_flFlashOverlayAlpha"].is_number())
+		{
+			offsets::m_flFlashDuration = data["m_flFlashOverlayAlpha"];
+		}
 
 		if (data["m_flC4Blow"].is_number())
 			offsets::m_flC4Blow = data["m_flC4Blow"];

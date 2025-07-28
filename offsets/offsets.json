@@ -52,5 +52,6 @@
     "m_sSanitizedPlayerName": 1912,
     "m_szName": 3360,
     "m_vOldOrigin": 4900,
-    "m_vecAbsOrigin": 208
+    "m_vecAbsOrigin": 208,
+    "m_flFlashDuration" : 5132
 }

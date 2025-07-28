@@ -3,6 +3,7 @@
 #include "classes/config.hpp"
 #include "classes/renderer.hpp"
 #include "window.hpp"
+#include "classes/offsets.hpp"
 
 static const std::unordered_map<std::string, int> boneMap = {
 	{"head", 6},
@@ -30,15 +31,15 @@ constexpr size_t BONE_SIZE = 32;
 constexpr int HEAD_BONE_INDEX = 6;
 
 inline uintptr_t CC4::get_planted() {
-	return g_game.process->read<uintptr_t>(g_game.process->read<uintptr_t>(g_game.base_client.base + updater::offsets::dwPlantedC4));
+	return g_game.process->read<uintptr_t>(g_game.process->read<uintptr_t>(g_game.base_client.base + offsets::dwPlantedC4));
 }
 
 inline uintptr_t CC4::get_node() {
-	return g_game.process->read<uintptr_t>(get_planted() + updater::offsets::m_pGameSceneNode);
+	return g_game.process->read<uintptr_t>(get_planted() + offsets::m_pGameSceneNode);
 }
 
 Vector3 CC4::get_origin() {
-	return g_game.process->read<Vector3>(get_node() + updater::offsets::m_vecAbsOrigin);
+	return g_game.process->read<Vector3>(get_node() + offsets::m_vecAbsOrigin);
 }
 
 // CGame
@@ -62,7 +63,7 @@ void CGame::init() {
 
 	GetClientRect(process->hwnd_, &game_bounds);
 
-	buildNumber = process->read<uintptr_t>(base_engine.base + updater::offsets::dwBuildNumber);
+	buildNumber = process->read<uintptr_t>(base_engine.base + offsets::dwBuildNumber);
 }
 
 void CGame::close() {
@@ -80,29 +81,29 @@ void CGame::close() {
 void CGame::loop() {
 	std::lock_guard<std::mutex> lock(reader_mutex);
 
-	if (updater::offsets::dwLocalPlayerController == 0x0)
+	if (offsets::dwLocalPlayerController == 0x0)
 		throw std::runtime_error("Offsets have not been correctly set, cannot proceed.");
 
 	inGame = false;
 	isC4Planted = false;
 
-	localPlayer = process->read<uintptr_t>(base_client.base + updater::offsets::dwLocalPlayerController);
+	localPlayer = process->read<uintptr_t>(base_client.base + offsets::dwLocalPlayerController);
 	if (!localPlayer) return;
 
-	localPlayerPawn = process->read<std::uint32_t>(localPlayer + updater::offsets::m_hPlayerPawn);
+	localPlayerPawn = process->read<std::uint32_t>(localPlayer + offsets::m_hPlayerPawn);
 	if (!localPlayerPawn) return;
 
-	entity_list = process->read<uintptr_t>(base_client.base + updater::offsets::dwEntityList);
+	entity_list = process->read<uintptr_t>(base_client.base + offsets::dwEntityList);
 
 	localList_entry2 = process->read<uintptr_t>(entity_list + 0x8 * ((localPlayerPawn & 0x7FFF) >> 9) + 16);
 	localpCSPlayerPawn = process->read<uintptr_t>(localList_entry2 + 120 * (localPlayerPawn & 0x1FF));
 	if (!localpCSPlayerPawn) return;
 
-	view_matrix = process->read<view_matrix_t>(base_client.base + updater::offsets::dwViewMatrix);
+	view_matrix = process->read<view_matrix_t>(base_client.base + offsets::dwViewMatrix);
 
-	localTeam = process->read<int>(localPlayer + updater::offsets::m_iTeamNum);
-	localOrigin = process->read<Vector3>(localpCSPlayerPawn + updater::offsets::m_vOldOrigin);
-	isC4Planted = process->read<bool>(base_client.base + updater::offsets::dwPlantedC4 - 0x8);
+	localTeam = process->read<int>(localPlayer + offsets::m_iTeamNum);
+	localOrigin = process->read<Vector3>(localpCSPlayerPawn + offsets::m_vOldOrigin);
+	isC4Planted = process->read<bool>(base_client.base + offsets::dwPlantedC4 - 0x8);
 
 	inGame = true;
 
@@ -116,7 +117,7 @@ void CGame::loop() {
 	const bool showHeadTracker = config::show_head_tracker;
 	const bool showExtraFlags = config::show_extra_flags;
 	const int renderDistance = config::render_distance;
-	const bool NoFlashBool = false; // this doesnt work currently we can read but not write
+	const bool NoFlashBool = true;
 
 	int playerIndex = 0;
 	CPlayer player;
@@ -130,10 +131,10 @@ void CGame::loop() {
 		player.entity = process->read<uintptr_t>(list_entry + 120 * (playerIndex & 0x1FF));
 		if (!player.entity) continue;
 
-		player.team = process->read<int>(player.entity + updater::offsets::m_iTeamNum);
+		player.team = process->read<int>(player.entity + offsets::m_iTeamNum);
 		if (teamEsp && (player.team == localTeam)) continue;
 
-		playerPawn = process->read<std::uint32_t>(player.entity + updater::offsets::m_hPlayerPawn);
+		playerPawn = process->read<std::uint32_t>(player.entity + offsets::m_hPlayerPawn);
 
 		list_entry2 = process->read<uintptr_t>(entity_list + 0x8 * ((playerPawn & 0x7FFF) >> 9) + 16);
 		if (!list_entry2) continue;
@@ -141,15 +142,15 @@ void CGame::loop() {
 		player.pCSPlayerPawn = process->read<uintptr_t>(list_entry2 + 120 * (playerPawn & 0x1FF));
 		if (!player.pCSPlayerPawn) continue;
 
-		player.health = process->read<int>(player.pCSPlayerPawn + updater::offsets::m_iHealth);
+		player.health = process->read<int>(player.pCSPlayerPawn + offsets::m_iHealth);
 		if (player.health <= 0 || player.health > 100) continue;
 
-		player.armor = process->read<int>(player.pCSPlayerPawn + updater::offsets::m_ArmorValue);
+		player.armor = process->read<int>(player.pCSPlayerPawn + offsets::m_ArmorValue);
 
 		if (teamEsp && (player.pCSPlayerPawn == localPlayer)) continue;
 
 		// Read entity controller from the player pawn - optimized bit operations
-		const uintptr_t handle = process->read<std::uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_hController);
+		const uintptr_t handle = process->read<std::uintptr_t>(player.pCSPlayerPawn + offsets::m_hController);
 		const int index = handle & 0x7FFF;
 		const int segment = index >> 9;
 		const int entry = index & 0x1FF;
@@ -161,11 +162,11 @@ void CGame::loop() {
 
 		// Read player name from the controller - use static buffer to avoid allocations
 		static char nameBuffer[256];
-		process->read_raw(controller + updater::offsets::m_iszPlayerName, nameBuffer, sizeof(nameBuffer) - 1);
+		process->read_raw(controller + offsets::m_iszPlayerName, nameBuffer, sizeof(nameBuffer) - 1);
 		nameBuffer[sizeof(nameBuffer) - 1] = '\0';
 		player.name = nameBuffer;
 
-		player.origin = process->read<Vector3>(player.pCSPlayerPawn + updater::offsets::m_vOldOrigin);
+		player.origin = process->read<Vector3>(player.pCSPlayerPawn + offsets::m_vOldOrigin);
 
 		// Early origin validation
 		if (player.origin.x == 0 && player.origin.y == 0) continue;
@@ -182,7 +183,7 @@ void CGame::loop() {
 
 		// Conditional bone reading based on what's actually needed
 		if (showSkeletonEsp || showHeadTracker) {
-			player.gameSceneNode = process->read<uintptr_t>(player.pCSPlayerPawn + updater::offsets::m_pGameSceneNode);
+			player.gameSceneNode = process->read<uintptr_t>(player.pCSPlayerPawn + offsets::m_pGameSceneNode);
 			player.boneArray = process->read<uintptr_t>(player.gameSceneNode + 0x1F0);
 
 			if (showSkeletonEsp) {
@@ -194,13 +195,13 @@ void CGame::loop() {
 		}
 
 		if (showExtraFlags) {
-			player.is_defusing = process->read<bool>(player.pCSPlayerPawn + updater::offsets::m_bIsDefusing);
-			player.flashAlpha = process->read<float>(player.pCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha);
+			player.is_defusing = process->read<bool>(player.pCSPlayerPawn + offsets::m_bIsDefusing);
+			player.flashAlpha = process->read<float>(player.pCSPlayerPawn + offsets::m_flFlashOverlayAlpha);
 
-			playerMoneyServices = process->read<uintptr_t>(player.entity + updater::offsets::m_pInGameMoneyServices);
-			player.money = process->read<int32_t>(playerMoneyServices + updater::offsets::m_iAccount);
+			playerMoneyServices = process->read<uintptr_t>(player.entity + offsets::m_pInGameMoneyServices);
+			player.money = process->read<int32_t>(playerMoneyServices + offsets::m_iAccount);
 
-			clippingWeapon = process->read<std::uint64_t>(player.pCSPlayerPawn + updater::offsets::m_pClippingWeapon);
+			clippingWeapon = process->read<std::uint64_t>(player.pCSPlayerPawn + offsets::m_pClippingWeapon);
 			const std::uint64_t firstLevel = process->read<std::uint64_t>(clippingWeapon + 0x10);
 			weaponData = process->read<std::uint64_t>(firstLevel + 0x20);
 
@@ -219,11 +220,11 @@ void CGame::loop() {
 		list.push_back(std::move(player));
 	}
 
-	m_flashAlpha = process->read<float>(localpCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha);
+	m_flashAlpha = process->read<float>(localpCSPlayerPawn + offsets::m_flFlashOverlayAlpha);
 
 	if (NoFlashBool)
 	{
-		process->write<float>(localpCSPlayerPawn + updater::offsets::m_flFlashOverlayAlpha, 0.0f);
+		process->write<float>(localpCSPlayerPawn + offsets::m_flFlashDuration, 0.0f);
 	}
 
 	// Use move semantics to avoid copy

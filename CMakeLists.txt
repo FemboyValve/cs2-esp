@@ -34,7 +34,7 @@ file(GLOB_RECURSE SOURCE_FILES_CS2 "src/*.cpp")
 file(GLOB_RECURSE HEADER_FILES_CS2 "src/*.h" "src/*.hpp")
 
 if(WIN32)
-    add_executable(${PROJECT_NAME} WIN32 ${SOURCE_FILES_CS2} ${HEADER_FILES_CS2})
+    add_executable(${PROJECT_NAME} ${SOURCE_FILES_CS2} ${HEADER_FILES_CS2})
 else() 
     add_executable(${PROJECT_NAME} ${SOURCE_FILES_CS2} ${HEADER_FILES_CS2})
 endif()
